@@ -1,7 +1,0 @@
-type hal_dms_service, service_manager_type;
-
-add_service(hal_dms_server, hal_dms_service)
-allow hal_dms_client hal_dms_service:service_manager find;
-
-binder_call(hal_dms_client, hal_dms_server)
-binder_call(hal_dms_server, hal_dms_client)
