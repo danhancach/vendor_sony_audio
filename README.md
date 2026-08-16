@@ -1,29 +1,38 @@
-clone to vendor/dolby
+# vendor/dolby — Motorola rtwo A16 Dolby stack
 
-Add this in your device.mk or common.mk:
+Clone to `vendor/dolby`. In `device.mk`:
 
 ```
-# Sony Dolby
 $(call inherit-product, vendor/dolby/config.mk)
 ```
 
-Add this in your audio_effects.xml:
+Refresh blobs from local Motorola dump:
 
+```bash
+./extract-from-moto-blob.sh
 ```
+
+Source tree: `~/android/sony-stock-fw/moto-blob/rtwo`
+
+## Stack
+
+- DMS HAL: AIDL `vendor.dolby.dms` (`vendor.dolby.dms.service`)
+- UI: `MotoDolbyDax3` + `daxService`
+- Codec2: Dolby Vision / media C2 services
+
+## audio_effects.xml
+
+Motorola A16 has no `libhwdap` / `libswvqe`. Use software DAP only:
+
+```xml
     <libraries>
-        <!--DOLBY DAP-->
         <library name="dap_sw" path="libswdap.so"/>
-        <library name="dap_hw" path="libhwdap.so"/>
-        <!--DOLBY VQE-->
-        <library name="vqe" path="libswvqe.so"/>
+        <library name="dap_game" path="libswgamedap.so"/>
+        <library name="dlbvol" path="libdlbvol.so"/>
     </libraries>
     <effects>
-        <!--DOLBY DAP-->
-        <effectProxy name="dap" library="proxy" uuid="9d4921da-8225-4f29-aefa-39537a04bcaa">
-            <libsw library="dap_sw" uuid="6ab06da4-c516-4611-8166-452799218539"/>
-            <libhw library="dap_hw" uuid="a0c30891-8246-4aef-b8ad-d53e26da0253"/>
-        </effectProxy>
-        <!--DOLBY VQE-->
-        <effect name="vqe" library="vqe" uuid="64a0f614-7fa4-48b8-b081-d59dc954616f"/>
+        <effect name="dap" library="dap_sw" uuid="6ab06da4-c516-4611-8166-452799218539"/>
+        <effect name="dap_game" library="dap_game" uuid="0a8abfe0-e10d-4f05-8acc-d9c45140dba3"/>
+        <effect name="dlbvol" library="dlbvol" uuid="9d4921da-8225-4f29-aefa-39537a04bcaa"/>
     </effects>
 ```

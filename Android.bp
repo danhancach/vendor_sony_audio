@@ -1,26 +1,13 @@
-// Automatically generated file. DO NOT MODIFY
+// Copyright (C) 2026 danhancach
+//
+// SPDX-License-Identifier: Apache-2.0
 
 soong_namespace {
 }
 
 android_app_import {
-	name: "DaxUI",
-	owner: "sony",
-	apk: "proprietary/system_ext/priv-app/DaxUI/DaxUI.apk",
-	certificate: "platform",
-	dex_preopt: {
-		enabled: true,
-	},
-	required: [
-        "daxService",
-        ],
-	system_ext_specific: true,
-	privileged: true,
-}
-
-android_app_import {
 	name: "daxService",
-	owner: "sony",
+	owner: "motorola",
 	apk: "proprietary/system_ext/priv-app/daxService/daxService.apk",
 	certificate: "platform",
 	dex_preopt: {
@@ -30,11 +17,380 @@ android_app_import {
 	privileged: true,
 }
 
+android_app_import {
+	name: "MotoDolbyDax3",
+	owner: "motorola",
+	apk: "proprietary/system/app/MotoDolbyDax3/MotoDolbyDax3.apk",
+	certificate: "platform",
+	dex_preopt: {
+		enabled: true,
+	},
+	required: [
+		"daxService",
+	],
+}
+
 prebuilt_etc_xml {
-	name: "vendor.dolby.hardware.dms",
-	owner: "sony",
-	src: "proprietary/vendor/etc/vintf/manifest/vendor.dolby.hardware.dms.xml",
+	name: "dms-service.xml",
+	owner: "motorola",
+	src: "proprietary/vendor/etc/vintf/manifest/dms-service.xml",
 	filename_from_src: true,
 	sub_dir: "vintf/manifest",
+	soc_specific: true,
+}
+
+prebuilt_etc_xml {
+	name: "vendor.dolby.media.c2.v1.0@1.0-service.xml",
+	owner: "motorola",
+	src: "proprietary/vendor/etc/vintf/manifest/vendor.dolby.media.c2.v1.0@1.0-service.xml",
+	filename_from_src: true,
+	sub_dir: "vintf/manifest",
+	soc_specific: true,
+}
+
+prebuilt_etc_xml {
+	name: "vendor.dolby.vision.media.c2@1.0-service.xml",
+	owner: "motorola",
+	src: "proprietary/vendor/etc/vintf/manifest/vendor.dolby.vision.media.c2@1.0-service.xml",
+	filename_from_src: true,
+	sub_dir: "vintf/manifest",
+	soc_specific: true,
+}
+
+cc_prebuilt_binary {
+	name: "vendor.dolby.dms.service",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/bin/hw/vendor.dolby.dms.service"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	relative_install_path: "hw",
+	soc_specific: true,
+}
+
+cc_prebuilt_binary {
+	name: "vendor.dolby.media.c2@1.0-service",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/bin/hw/vendor.dolby.media.c2@1.0-service"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	relative_install_path: "hw",
+	soc_specific: true,
+}
+
+cc_prebuilt_binary {
+	name: "dolbycodec2",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/bin/hw/dolbycodec2"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	relative_install_path: "hw",
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "vendor.dolby.hardware.dms@2.0_vendor",
+	owner: "motorola",
+	stem: "vendor.dolby.hardware.dms@2.0",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/vendor.dolby.hardware.dms@2.0.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "vendor.dolby.hardware.dms@2.1_vendor",
+	owner: "motorola",
+	stem: "vendor.dolby.hardware.dms@2.1",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/vendor.dolby.hardware.dms@2.1.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "vendor.dolby.dms-V1-ndk",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/vendor.dolby.dms-V1-ndk.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdapparamstorage",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdapparamstorage.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdeccfg",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdeccfg.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdlbdsservice",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdlbdsservice.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdlbpreg",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdlbpreg.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdmshal",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdmshal.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdolbyottcameracontrol",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdolbyottcameracontrol.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdolbyvision",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libdolbyvision.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libcodec2_store_dolby",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/libcodec2_store_dolby.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "c2.dolby.client",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/c2.dolby.client.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "c2.dolby.decoder",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/c2.dolby.decoder.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "c2.dolby.decoder.secure",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/c2.dolby.decoder.secure.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "c2.dolby.egl",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/c2.dolby.egl.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "c2.dolby.store",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/c2.dolby.store.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libdlbvol",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/soundfx/libdlbvol.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	relative_install_path: "soundfx",
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libswdap",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/soundfx/libswdap.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	relative_install_path: "soundfx",
+	soc_specific: true,
+}
+
+cc_prebuilt_library_shared {
+	name: "libswgamedap",
+	owner: "motorola",
+	strip: { none: true },
+	target: {
+		android_arm64: {
+			srcs: ["proprietary/vendor/lib64/soundfx/libswgamedap.so"],
+		},
+	},
+	compile_multilib: "64",
+	prefer: true,
+	check_elf_files: false,
+	relative_install_path: "soundfx",
 	soc_specific: true,
 }
