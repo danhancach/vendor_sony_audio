@@ -1,0 +1,2 @@
+# audioserver EffectDapController reads persist.audio.dolby.enabled (audio_prop)
+get_prop(audioserver, audio_prop)

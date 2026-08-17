@@ -1,0 +1,320 @@
+// Sony Xperia 5 V stock A15 Dolby (pdx237)
+// SPDX-License-Identifier: Apache-2.0
+
+soong_namespace {
+}
+
+cc_defaults {
+    name: "dolby_prebuilt_defaults",
+    owner: "sony",
+    compile_multilib: "64",
+    prefer: true,
+    check_elf_files: false,
+    strip: { none: true },
+}
+
+cc_defaults {
+    name: "dolby_vendor_lib_defaults",
+    defaults: ["dolby_prebuilt_defaults"],
+    soc_specific: true,
+}
+
+cc_defaults {
+    name: "dolby_system_ext_lib_defaults",
+    defaults: ["dolby_prebuilt_defaults"],
+    system_ext_specific: true,
+}
+
+cc_defaults {
+    name: "dolby_soundfx_defaults",
+    defaults: ["dolby_vendor_lib_defaults"],
+    relative_install_path: "soundfx",
+}
+
+android_app_import {
+    name: "daxService",
+    owner: "sony",
+    apk: "proprietary/system_ext/priv-app/daxService/daxService.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+    privileged: true,
+    system_ext_specific: true,
+}
+
+android_app_import {
+    name: "DolbySound",
+    owner: "sony",
+    apk: "proprietary/system_ext/priv-app/DolbySound/DolbySound.apk",
+    overrides: ["AudioFX", "MusicFX"],
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+    privileged: true,
+    system_ext_specific: true,
+}
+
+cc_prebuilt_library_shared {
+    name: "libmmparserextractor",
+    defaults: ["dolby_system_ext_lib_defaults"],
+    relative_install_path: "extractors",
+    target: { android_arm64: { srcs: ["proprietary/system_ext/lib64/extractors/libmmparserextractor.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libavenhancements",
+    defaults: ["dolby_system_ext_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/system_ext/lib64/libavenhancements.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "vendor.dolby.hardware.dms@2.0",
+    defaults: ["dolby_system_ext_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/system_ext/lib64/vendor.dolby.hardware.dms@2.0.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "vendor.dolby.hardware.dms@2.0_vendor",
+    defaults: ["dolby_vendor_lib_defaults"],
+    stem: "vendor.dolby.hardware.dms@2.0",
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/vendor.dolby.hardware.dms@2.0.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "vendor.dolby.hardware.dms@2.0-impl",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/vendor.dolby.hardware.dms@2.0-impl.so"] } },
+}
+
+cc_prebuilt_binary {
+    name: "vendor.dolby.hardware.dms@2.0-service",
+    defaults: ["dolby_vendor_lib_defaults"],
+    relative_install_path: "hw",
+    target: { android_arm64: { srcs: ["proprietary/vendor/bin/hw/vendor.dolby.hardware.dms@2.0-service"] } },
+}
+
+cc_prebuilt_binary {
+    name: "vendor.dolby.media.c2@1.0-service",
+    defaults: ["dolby_vendor_lib_defaults"],
+    relative_install_path: "hw",
+    target: {
+        android_arm64: {
+            srcs: ["proprietary/vendor/bin/hw/vendor.dolby.media.c2@1.0-service"],
+            shared_libs: [
+                "android.hardware.media.c2@1.0",
+                "android.hardware.media.c2@1.1",
+                "android.hardware.media.c2@1.2",
+                "libcodec2_hidl@1.0",
+                "libcodec2_hidl@1.1",
+                "libcodec2_hidl@1.2",
+                "libcodec2_vndk",
+                "libhidlbase",
+            ],
+        },
+    },
+}
+
+prebuilt_etc_xml {
+    name: "vendor.dolby.hardware.dms.xml",
+    owner: "sony",
+    src: "proprietary/vendor/etc/vintf/manifest/vendor.dolby.hardware.dms.xml",
+    filename_from_src: true,
+    sub_dir: "vintf/manifest",
+    soc_specific: true,
+}
+
+prebuilt_etc_xml {
+    name: "vendor.dolby.media.c2@1.0-service.xml",
+    owner: "sony",
+    src: "proprietary/vendor/etc/vintf/manifest/vendor.dolby.media.c2@1.0-service.xml",
+    filename_from_src: true,
+    sub_dir: "vintf/manifest",
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "vendor.dolby.hardware.dms@2.0-service.rc",
+    src: "configs/init/vendor.dolby.hardware.dms@2.0-service.rc",
+    filename_from_src: true,
+    sub_dir: "init",
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "vendor.dolby.media.c2@1.0-service.rc",
+    src: "proprietary/vendor/etc/init/vendor.dolby.media.c2@1.0-service.rc",
+    filename_from_src: true,
+    sub_dir: "init",
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "dax-default.xml",
+    src: "proprietary/vendor/etc/dolby/dax-default.xml",
+    filename_from_src: true,
+    sub_dir: "dolby",
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "media_codecs_dolby_audio.xml",
+    src: "proprietary/vendor/etc/media_codecs_dolby_audio.xml",
+    filename_from_src: true,
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "com.dolby.daxservice.xml",
+    src: "proprietary/system_ext/etc/permissions/com.dolby.daxservice.xml",
+    filename_from_src: true,
+    sub_dir: "permissions",
+    system_ext_specific: true,
+}
+
+cc_prebuilt_library_shared {
+    name: "libXtcApi",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libXtcApi.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libaudiokeymgr",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libaudiokeymgr.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libaudiosnpewrapper",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libaudiosnpewrapper.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libaudiosnpewrapper_context",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libaudiosnpewrapper_context.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libcodec2_soft_ac4dec",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libcodec2_soft_ac4dec.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libcodec2_soft_ddpdec",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libcodec2_soft_ddpdec.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libcodec2_soft_dolby",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libcodec2_soft_dolby.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libcodec2_store_dolby",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libcodec2_store_dolby.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libdapparamstorage",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libdapparamstorage.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libdeccfg",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libdeccfg.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libdlbdsservice",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libdlbdsservice.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libdlbpreg",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libdlbpreg.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libiVptApi",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libiVptApi.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libiVptHkiDec",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libiVptHkiDec.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libiVptLibC",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libiVptLibC.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "liboem_specific",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/liboem_specific.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "librebuffering",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/librebuffering.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libtsrspkenhance",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libtsrspkenhance.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libznr",
+    defaults: ["dolby_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libznr.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libdlbvol",
+    defaults: ["dolby_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libdlbvol.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libswdap",
+    defaults: ["dolby_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libswdap.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libswgamedap",
+    defaults: ["dolby_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libswgamedap.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libswvqe",
+    defaults: ["dolby_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libswvqe.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libdnnrwrapper",
+    defaults: ["dolby_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libdnnrwrapper.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libznrwrapper",
+    defaults: ["dolby_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libznrwrapper.so"] } },
+}

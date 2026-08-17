@@ -1,0 +1,518 @@
+diff --git a/services/audioflinger/Android.bp b/services/audioflinger/Android.bp
+index 5dd33e56ee..f0a2cf8bf7 100644
+--- a/services/audioflinger/Android.bp
++++ b/services/audioflinger/Android.bp
+@@ -201,6 +201,7 @@ cc_library {
+         "AudioFlinger.cpp",
+         "Client.cpp",
+         "DeviceEffectManager.cpp",
++        "EffectDapController.cpp",
+         "Effects.cpp",
+         "MelReporter.cpp",
+         "PatchCommandThread.cpp",
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+index 5b4188e4c7..cc47a8a6cb 100644
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -25,6 +25,7 @@
+ 
+ #include "Configuration.h"
+ #include "AudioFlinger.h"
++#include "EffectDapController.h"
+ 
+ #include <afutils/FallibleLockGuard.h>
+ #include <afutils/NBAIO_Tee.h>
+@@ -360,6 +361,7 @@ void AudioFlinger::onFirstRef()
+                                          mPatchPanel);
+ 
+     ALOGD("%s: TimerQueue %s", __func__, mTimerQueue->ready() ? "ready" : "uninitialized");
++    EffectDapController::create(this);
+ }
+ 
+ status_t AudioFlinger::setAudioHalPids(const std::vector<pid_t>& pids) {
+@@ -484,6 +486,7 @@ std::optional<media::AudioVibratorInfo> AudioFlinger::getDefaultVibratorInfo_l()
+ 
+ AudioFlinger::~AudioFlinger()
+ {
++    EffectDapController::destroy();
+     while (!mRecordThreads.empty()) {
+         // closeInput_nonvirtual() will remove specified entry from mRecordThreads
+         closeInput_nonvirtual(mRecordThreads.begin()->first);
+@@ -4659,6 +4662,9 @@ sp<IAfEffectHandle> AudioFlinger::createOrphanEffect_l(
+             *enabled = (int)effect->isEnabled();
+         }
+         putOrphanEffectChain_l(chain);
++        if (EffectDapController::instance() != nullptr) {
++            EffectDapController::instance()->effectCreated(effect, nullptr);
++        }
+     }
+     *status = lStatus;
+     return handle;
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+new file mode 100644
+index 0000000000..16b882a9d7
+--- /dev/null
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -0,0 +1,224 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#define LOG_TAG "EffectDapController"
++
++#include "EffectDapController.h"
++
++#include <cutils/properties.h>
++#include <media/AudioEffect.h>
++#include <strings.h>
++#include <sys/system_properties.h>
++#include <unistd.h>
++#include <utils/Log.h>
++#include <utils/Timers.h>
++
++#include "ds_config.h"
++
++namespace android {
++
++namespace {
++
++constexpr const char* kDolbyEnabledProp = "persist.audio.dolby.enabled";
++
++void* dolbyPropertyWatchEntry(void* /*arg*/) {
++    uint32_t serial = 0;
++    const prop_info* pi = nullptr;
++    while (EffectDapController::instance() != nullptr &&
++            EffectDapController::instance()->propertyWatcherRunning()) {
++        if (pi == nullptr) {
++            pi = __system_property_find(kDolbyEnabledProp);
++            if (pi == nullptr) {
++                usleep(500000);
++                continue;
++            }
++        }
++        uint32_t newSerial = serial;
++        const timespec timeout = {1, 0};
++        if (__system_property_wait(pi, serial, &newSerial, &timeout)) {
++            serial = newSerial;
++            if (EffectDapController* ctrl = EffectDapController::instance()) {
++                ctrl->updateBypassFromProperty();
++            }
++        }
++    }
++    return nullptr;
++}
++
++} // namespace
++
++EffectDapController* EffectDapController::sInstance = nullptr;
++
++EffectDapController* EffectDapController::instance() {
++    return sInstance;
++}
++
++void EffectDapController::create(AudioFlinger* audioFlinger) {
++    if (sInstance == nullptr) {
++        sInstance = new EffectDapController(audioFlinger);
++        sInstance->startPropertyWatcher();
++    }
++}
++
++void EffectDapController::destroy() {
++    if (sInstance != nullptr) {
++        sInstance->stopPropertyWatcher();
++    }
++    delete sInstance;
++    sInstance = nullptr;
++}
++
++EffectDapController::EffectDapController(AudioFlinger* /* audioFlinger */) {}
++
++void EffectDapController::startPropertyWatcher() {
++    if (mPropWatchRunning.exchange(true)) {
++        return;
++    }
++    pthread_attr_t attr;
++    pthread_attr_init(&attr);
++    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
++    pthread_create(&mPropWatchThread, &attr, dolbyPropertyWatchEntry, nullptr);
++    pthread_attr_destroy(&attr);
++}
++
++void EffectDapController::stopPropertyWatcher() {
++    mPropWatchRunning.store(false);
++}
++
++bool EffectDapController::propertyWatcherRunning() const {
++    return mPropWatchRunning.load();
++}
++
++static bool parseDolbyEnabledProp(const char* value) {
++    if (value == nullptr || value[0] == '\0' || value[0] == '0') {
++        return false;
++    }
++    if (strcasecmp(value, "false") == 0) {
++        return false;
++    }
++    return true;
++}
++
++bool EffectDapController::isDapEffect(const sp<IAfEffectBase>& effect) {
++    if (effect == nullptr) {
++        return false;
++    }
++    static const effect_uuid_t kDapType = {
++        0x46d279d9, 0x9be7, 0x453d, 0x9d7c, {0xef, 0x93, 0x7f, 0x67, 0x55, 0x87}};
++    static const effect_uuid_t kDapSwUuid = {
++        0x9d4921da, 0x8225, 0x4f29, 0xaefa, {0x39, 0x53, 0x7a, 0x04, 0xbc, 0xaa}};
++    const effect_uuid_t& type = effect->desc().type;
++    const effect_uuid_t& uuid = effect->desc().uuid;
++    return memcmp(&type, &kDapType, sizeof(effect_uuid_t)) == 0
++            || memcmp(&type, &kDapSwUuid, sizeof(effect_uuid_t)) == 0
++            || memcmp(&uuid, &kDapSwUuid, sizeof(effect_uuid_t)) == 0;
++}
++
++void EffectDapController::effectCreated(const sp<IAfEffectModule>& effect,
++                                        const sp<IAfThreadBase>& /* thread */) {
++    if (!isDapEffect(effect)) {
++        return;
++    }
++    Mutex::Autolock _l(mLock);
++    const bool isNew = (mDapEffect != effect);
++    mDapEffect = effect;
++    ALOGI("%s() DAP effect %s %p", __func__, isNew ? "created" : "reattached", effect.get());
++    if (isNew) {
++        mBypassed = true;
++    }
++    updateBypassFromProperty_l();
++}
++
++void EffectDapController::effectReleased(const sp<IAfEffectModule>& effect) {
++    if (!isDapEffect(effect)) {
++        return;
++    }
++    Mutex::Autolock _l(mLock);
++    if (mDapEffect == effect) {
++        mDapEffect.clear();
++        mBypassed = true;
++    }
++    ALOGD("%s() DAP effect released %p", __func__, effect.get());
++}
++
++void EffectDapController::effectSuspended(const sp<IAfEffectBase>& effect, bool suspended) {
++    if (!isDapEffect(effect)) {
++        return;
++    }
++    ALOGD("%s() DAP effect suspended=%d", __func__, suspended);
++    if (!suspended) {
++        Mutex::Autolock _l(mLock);
++        updateBypassFromProperty_l();
++    }
++}
++
++void EffectDapController::updateBypassFromProperty() {
++    Mutex::Autolock _l(mLock);
++    updateBypassFromProperty_l();
++}
++
++void EffectDapController::updateBypassFromProperty_l() {
++    char value[PROPERTY_VALUE_MAX] = {};
++    property_get(kDolbyEnabledProp, value, "1");
++    const bool dolbyOn = parseDolbyEnabledProp(value);
++    const bool bypass = !dolbyOn;
++    const bool changed = mBypassed != bypass;
++    mBypassed = bypass;
++    if (changed) {
++        ALOGI("%s() dolby_enable=%d bypass=%d skip=%d", __func__, dolbyOn, bypass, bypass);
++    }
++    if (mDapEffect != nullptr) {
++        setBypass_l(bypass);
++        updateSkipEffectProcess(bypass);
++    }
++}
++
++status_t EffectDapController::setBypass_l(bool bypass) {
++    sp<IAfEffectModule> effect = mDapEffect;
++    if (effect == nullptr) {
++        return NO_INIT;
++    }
++    const int32_t bypassVal = bypass ? 1 : 0;
++    uint8_t buf[sizeof(effect_param_t) + sizeof(int32_t) + sizeof(int32_t)] = {};
++    effect_param_t* p = reinterpret_cast<effect_param_t*>(buf);
++    p->psize = sizeof(int32_t);
++    p->vsize = sizeof(int32_t);
++    const int32_t bypassParam = EFFECT_PARAM_SET_BYPASS;
++    memcpy(p->data, &bypassParam, sizeof(int32_t));
++    memcpy(p->data + sizeof(int32_t), &bypassVal, sizeof(int32_t));
++    std::vector<uint8_t> cmd(buf, buf + sizeof(buf));
++    std::vector<uint8_t> reply;
++    status_t status = effect->command(EFFECT_CMD_SET_PARAM, cmd, sizeof(buf), &reply);
++    if (status != NO_ERROR) {
++        ALOGW("%s() SET_BYPASS failed: %d", __func__, status);
++    }
++
++    if (!bypass) {
++        const int32_t skipVal = 1;
++        uint8_t buf2[sizeof(effect_param_t) + sizeof(int32_t) + sizeof(int32_t)] = {};
++        effect_param_t* p2 = reinterpret_cast<effect_param_t*>(buf2);
++        p2->psize = sizeof(int32_t);
++        p2->vsize = sizeof(int32_t);
++        const int32_t skipHardBypassParam = EFFECT_PARAM_SKIP_HARD_BYPASS;
++        memcpy(p2->data, &skipHardBypassParam, sizeof(int32_t));
++        memcpy(p2->data + sizeof(int32_t), &skipVal, sizeof(int32_t));
++        std::vector<uint8_t> cmd2(buf2, buf2 + sizeof(buf2));
++        std::vector<uint8_t> reply2;
++        status = effect->command(EFFECT_CMD_SET_PARAM, cmd2, sizeof(buf2), &reply2);
++        if (status != NO_ERROR) {
++            ALOGW("%s() SKIP_HARD_BYPASS failed: %d", __func__, status);
++        }
++    }
++    return status;
++}
++
++void EffectDapController::updateSkipEffectProcess(bool skip) {
++    sp<IAfEffectModule> effect = mDapEffect;
++    if (effect == nullptr) {
++        return;
++    }
++    effect->setSkipEffectProcess(skip);
++    ALOGD("%s() skipEffectProcess=%s", __func__, skip ? "skip" : "not skip");
++}
++
++} // namespace android
+diff --git a/services/audioflinger/EffectDapController.h b/services/audioflinger/EffectDapController.h
+new file mode 100644
+index 0000000000..5037467267
+--- /dev/null
++++ b/services/audioflinger/EffectDapController.h
+@@ -0,0 +1,54 @@
++/*
++ * Sony / Motorola Dolby DAP coordination for AudioFlinger (pdx237 EvoX).
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#pragma once
++
++#include <utils/Mutex.h>
++
++#include <atomic>
++#include <pthread.h>
++
++#include "IAfEffect.h"
++#include "IAfThread.h"
++
++namespace android {
++
++class AudioFlinger;
++
++class EffectDapController {
++public:
++    static EffectDapController* instance();
++    static void create(AudioFlinger* audioFlinger);
++    static void destroy();
++
++    void effectCreated(const sp<IAfEffectModule>& effect, const sp<IAfThreadBase>& thread);
++    void effectReleased(const sp<IAfEffectModule>& effect);
++    void effectSuspended(const sp<IAfEffectBase>& effect, bool suspended);
++
++    void updateBypassFromProperty();
++
++    void updateBypassFromProperty_l();
++
++    void startPropertyWatcher();
++    void stopPropertyWatcher();
++    bool propertyWatcherRunning() const;
++
++private:
++    explicit EffectDapController(AudioFlinger* audioFlinger);
++
++    static bool isDapEffect(const sp<IAfEffectBase>& effect);
++    status_t setBypass_l(bool bypass);
++    void updateSkipEffectProcess(bool skip);
++
++    static EffectDapController* sInstance;
++
++    sp<IAfEffectModule> mDapEffect;
++    Mutex mLock;
++    bool mBypassed = true;
++
++    std::atomic<bool> mPropWatchRunning{false};
++    pthread_t mPropWatchThread{};
++};
++
++} // namespace android
+diff --git a/services/audioflinger/Effects.cpp b/services/audioflinger/Effects.cpp
+index 8bfae79bc4..ce99a13001 100644
+--- a/services/audioflinger/Effects.cpp
++++ b/services/audioflinger/Effects.cpp
+@@ -21,6 +21,9 @@
+ 
+ #include "Effects.h"
+ 
++#include "EffectDapController.h"
++#include "dolby_debug.h"
++
+ #include "Client.h"
+ #include "EffectConfiguration.h"
+ 
+@@ -194,6 +197,10 @@ void EffectBase::setSuspended(bool suspended)
+ {
+     audio_utils::lock_guard _l(mutex());
+     mSuspended = suspended;
++    if (EffectDapController::instance() != nullptr) {
++        EffectDapController::instance()->effectSuspended(
++                sp<IAfEffectBase>::fromExisting(this), suspended);
++    }
+ }
+ 
+ bool EffectBase::suspended() const
+@@ -712,6 +719,16 @@ void EffectModule::process()
+ 
+     if (isProcessEnabled()) {
+         int ret;
++    if (isDapEffectModule() && mSkipEffectProcess) {
++        if (EffectDapController::instance() != nullptr && dolbyDebugEnabled()) {
++            static uint32_t sSkipLogCounter = 0;
++            if (++sSkipLogCounter % 500 == 1) {
++                ALOGI("EffectModule::process DAP hard-skip (passthrough PCM)");
++            }
++        }
++        copyInputToOutput();
++        return;
++    }
+         if (isProcessImplemented()) {
+             if (auxType) {
+                 // We overwrite the aux input buffer here and clear after processing.
+@@ -1762,6 +1779,11 @@ void EffectModule::dump(int fd, const Vector<String16>& args) const {
+             dumpInOutBuffer(false /* isInput */, mOutBuffer).c_str(),
+             dumpInOutBuffer(false /* isInput */, mOutConversionBuffer).c_str());
+ 
++    if (isDapEffectModule()) {
++        result.appendFormat("\t\t- skipEffectProcess: %s\n",
++                mSkipEffectProcess ? "skip" : "not skip");
++    }
++
+     write(fd, result.c_str(), result.length());
+ 
+     if (mEffectInterface != 0) {
+@@ -2616,6 +2638,9 @@ size_t EffectChain::removeEffect(const sp<IAfEffectModule>& effect,
+                 mEffects[i]->stop_l();
+             }
+             if (release) {
++                if (EffectDapController::instance() != nullptr) {
++                    EffectDapController::instance()->effectReleased(effect);
++                }
+                 mEffects[i]->release_l("EffectChain::removeEffect");
+             }
+             // Skip operation when no thread attached (could lead to sigfpe as framecount is 0...)
+@@ -2981,6 +3006,12 @@ static const effect_uuid_t SL_IID_DAP_SW_ = // 9d4921da-8225-4f29-aefa-39537a04b
+ { 0x9d4921da, 0x8225, 0x4f29, 0xaefa, {0x39, 0x53, 0x7a, 0x04, 0xbc, 0xaa} };
+ const effect_uuid_t * const SL_IID_DAP_SW = &SL_IID_DAP_SW_;
+ 
++bool EffectModule::isDapEffectModule() const {
++    return memcmp(&mDescriptor.type, SL_IID_DAP, sizeof(effect_uuid_t)) == 0
++            || memcmp(&mDescriptor.type, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0
++            || memcmp(&mDescriptor.uuid, SL_IID_DAP_SW, sizeof(effect_uuid_t)) == 0;
++}
++
+ // ViperFx
+ static const effect_uuid_t SL_V4A_RE_ = // 90380da3-8536-4744-a6a3-5731970e640f
+ { 0x90380da3, 0x8536, 0x4744, 0xa6a3, {0x57, 0x31, 0x97, 0x0e, 0x64, 0x0f} };
+diff --git a/services/audioflinger/Effects.h b/services/audioflinger/Effects.h
+index e9de3f2d09..5f98804d5c 100644
+--- a/services/audioflinger/Effects.h
++++ b/services/audioflinger/Effects.h
+@@ -237,6 +237,10 @@ public:
+     bool isSpatializer() const final;
+     bool isEffect(const effect_uuid_t &uuid) const;
+ 
++    void setSkipEffectProcess(bool skip) final { mSkipEffectProcess = skip; }
++    bool skipEffectProcess() const final { return mSkipEffectProcess; }
++    bool isDapEffectModule() const;
++
+     status_t setHapticScale_l(int id, os::HapticScale hapticScale) final
+             REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex;
+     status_t setVibratorInfo_l(const media::AudioVibratorInfo& vibratorInfo) final
+@@ -293,6 +297,8 @@ private:
+     uint32_t mInChannelCountRequested;
+     uint32_t mOutChannelCountRequested;
+ 
++    bool mSkipEffectProcess = false;
++
+     template <typename MUTEX>
+     class AutoLockReentrant {
+     public:
+diff --git a/services/audioflinger/IAfEffect.h b/services/audioflinger/IAfEffect.h
+index 7163897373..d1a26a3db9 100644
+--- a/services/audioflinger/IAfEffect.h
++++ b/services/audioflinger/IAfEffect.h
+@@ -195,6 +195,9 @@ public:
+     virtual bool updateState_l()
+             REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex = 0;
+ 
++    virtual void setSkipEffectProcess(bool skip) = 0;
++    virtual bool skipEffectProcess() const = 0;
++
+ private:
+     virtual void process() = 0;
+     virtual void reset_l() REQUIRES(audio_utils::EffectChain_Mutex) = 0;
+diff --git a/services/audioflinger/Threads.cpp b/services/audioflinger/Threads.cpp
+index c4d9441c5b..f7f708cf78 100644
+--- a/services/audioflinger/Threads.cpp
++++ b/services/audioflinger/Threads.cpp
+@@ -24,6 +24,7 @@
+ #include "Threads.h"
+ 
+ #include "Client.h"
++#include "EffectDapController.h"
+ #include "IAfEffect.h"
+ #include "MelReporter.h"
+ #include "ResamplerBufferProvider.h"
+@@ -1703,6 +1704,10 @@ sp<IAfEffectHandle> ThreadBase::createEffect_l(
+             effect->setInputDevice(inDeviceTypeAddr());
+             effect->setMode(mAfThreadCallback->getMode());
+             effect->setAudioSource(mAudioSource);
++            if (EffectDapController::instance() != nullptr) {
++                EffectDapController::instance()->effectCreated(
++                        effect, sp<IAfThreadBase>::fromExisting(this));
++            }
+         }
+         if (effect->isHapticGenerator()) {
+             // TODO(b/184194057): Use the vibrator information from the vibrator that will be used
+diff --git a/services/audioflinger/dolby_debug.h b/services/audioflinger/dolby_debug.h
+new file mode 100644
+index 0000000000..5c5920c70e
+--- /dev/null
++++ b/services/audioflinger/dolby_debug.h
+@@ -0,0 +1,18 @@
++/*
++ * Shared Dolby debug helpers. Writes extra logs when
++ * persist.audio.dolby.debug=1 (audio_prop; audioserver can read it).
++ * persist.vendor.dolby.debug is vendor_default_prop and is denied to audioserver.
++ */
++#pragma once
++
++#include <cutils/properties.h>
++
++namespace android {
++
++static inline bool dolbyDebugEnabled() {
++    char value[PROPERTY_VALUE_MAX] = {};
++    property_get("persist.audio.dolby.debug", value, "0");
++    return value[0] == '1' || value[0] == 't' || value[0] == 'T';
++}
++
++} // namespace android
+diff --git a/services/audioflinger/ds_config.h b/services/audioflinger/ds_config.h
+new file mode 100644
+index 0000000000..2dca4aee85
+--- /dev/null
++++ b/services/audioflinger/ds_config.h
+@@ -0,0 +1,10 @@
++/*
++ * Dolby DAP effect parameter IDs (vendor/libswdap / daxService).
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#pragma once
++
++#include <stdint.h>
++
++#define EFFECT_PARAM_SET_BYPASS           0x00010005
++#define EFFECT_PARAM_SKIP_HARD_BYPASS     0x0001000a

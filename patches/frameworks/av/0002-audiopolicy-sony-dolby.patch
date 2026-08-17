@@ -1,0 +1,191 @@
+diff --git a/services/audiopolicy/managerdefault/Android.bp b/services/audiopolicy/managerdefault/Android.bp
+index 2f44ec68a4..b0d7a4c27f 100644
+--- a/services/audiopolicy/managerdefault/Android.bp
++++ b/services/audiopolicy/managerdefault/Android.bp
+@@ -18,6 +18,7 @@ cc_library_shared {
+     srcs: [
+         "AudioPolicyManager.cpp",
+         "EngineLibrary.cpp",
++        "SonyDolbyAudioPolicy.cpp",
+     ],
+ 
+     export_include_dirs: ["."],
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index e96584d1d7..97d949c0a9 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -56,6 +56,7 @@
+ #include <utils/Log.h>
+ 
+ #include "AudioPolicyManager.h"
++#include "SonyDolbyAudioPolicy.h"
+ #include "SpatializerHelper.h"
+ #include "TypeConverter.h"
+ 
+@@ -1423,6 +1424,7 @@ status_t AudioPolicyManager::getOutputForAttrInt(
+         resultAttr->flags = static_cast<audio_flags_mask_t>(resultAttr->flags | it->second);
+     }
+     *stream = mEngine->getStreamTypeForAttributes(*resultAttr);
++    sonyDolbyAdjustOutputFlags(*stream, flags);
+ 
+     ALOGV("%s() attributes=%s stream=%s session %d selectedDeviceId %d", __func__,
+           toString(*resultAttr).c_str(), toString(*stream).c_str(), session, requestedPortId);
+@@ -1732,6 +1734,11 @@ status_t AudioPolicyManager::openDirectOutput(audio_stream_type_t stream,
+ 
+     *output = AUDIO_IO_HANDLE_NONE;
+ 
++    // Dolby DAP lives on session-0 mixer; block direct/offload when Dolby is on.
++    if (stream == AUDIO_STREAM_MUSIC && sonyDolbyEnabled()) {
++        return NAME_NOT_FOUND;
++    }
++
+     // skip direct output selection if the request can obviously be attached to a mixed output
+     // and not explicitly requested
+     if (((flags & AUDIO_OUTPUT_FLAG_DIRECT) == 0) &&
+@@ -1899,6 +1906,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevices(
+         // use DEEP_BUFFER as default output for music stream type
+         *flags = (audio_output_flags_t)AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
+     }
++    sonyDolbyAdjustOutputFlags(stream, flags);
+     if (stream == AUDIO_STREAM_TTS) {
+         *flags = AUDIO_OUTPUT_FLAG_TTS;
+     } else if (stream == AUDIO_STREAM_VOICE_CALL &&
+@@ -5240,6 +5248,11 @@ bool AudioPolicyManager::isOffloadPossible(const audio_offload_info_t &offloadIn
+         return false; // no offloading if mono is set.
+     }
+ 
++    if (offloadInfo.stream_type == AUDIO_STREAM_MUSIC && sonyDolbyEnabled()) {
++        ALOGV("%s: offload disabled because Dolby is enabled", __func__);
++        return false;
++    }
++
+     // Check if offload has been disabled
+     if (property_get_bool("audio.offload.disable", false /* default_value */)) {
+         ALOGV("%s: offload disabled by audio.offload.disable", __func__);
+diff --git a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
+new file mode 100644
+index 0000000000..110fc1819c
+--- /dev/null
++++ b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
+@@ -0,0 +1,52 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#define LOG_TAG "SonyDolbyAudioPolicy"
++
++#include "SonyDolbyAudioPolicy.h"
++
++#include <cutils/properties.h>
++#include <strings.h>
++#include <utils/Log.h>
++
++#include "dolby_debug.h"
++
++namespace android {
++
++bool sonyDolbyEnabled() {
++    char value[PROPERTY_VALUE_MAX] = {};
++    property_get("persist.audio.dolby.enabled", value, "1");
++    if (value[0] == '\0' || value[0] == '0') {
++        return false;
++    }
++    if (strcasecmp(value, "false") == 0) {
++        return false;
++    }
++    return true;
++}
++
++void sonyDolbyAdjustOutputFlags(audio_stream_type_t stream, audio_output_flags_t* flags) {
++    if (flags == nullptr || stream != AUDIO_STREAM_MUSIC) {
++        return;
++    }
++    if (!sonyDolbyEnabled()) {
++        return;
++    }
++    const audio_output_flags_t before = *flags;
++    // Route music through the primary mixer where session-0 DAP (getOutputForEffect) lives.
++    // Forcing DEEP_BUFFER sends playback to a separate io handle with no DAP effect chain.
++    *flags = static_cast<audio_output_flags_t>(
++            *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
++                       AUDIO_OUTPUT_FLAG_FAST | AUDIO_OUTPUT_FLAG_HW_AV_SYNC |
++                       AUDIO_OUTPUT_FLAG_DEEP_BUFFER));
++    if (before != *flags) {
++        ALOGI("%s() dolby_enable=1 music flags 0x%x -> 0x%x", __func__, before, *flags);
++        // #region agent log
++        char data[96];
++        snprintf(data, sizeof(data), "{\"before\":%u,\"after\":%u}", before, *flags);
++        dolbyAgentLog("SonyDolbyAudioPolicy.cpp:adjust", "flags_adjusted", "H2", data);
++        // #endregion agent log
++    }
++}
++
++} // namespace android
+diff --git a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
+new file mode 100644
+index 0000000000..453fdf752b
+--- /dev/null
++++ b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
+@@ -0,0 +1,14 @@
++/*
++ * Sony/Moto Dolby routing: keep music on primary mixer (session-0 DAP), strip offload paths.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#pragma once
++
++#include <system/audio.h>
++
++namespace android {
++
++bool sonyDolbyEnabled();
++void sonyDolbyAdjustOutputFlags(audio_stream_type_t stream, audio_output_flags_t* flags);
++
++} // namespace android
+diff --git a/services/audiopolicy/managerdefault/dolby_debug.h b/services/audiopolicy/managerdefault/dolby_debug.h
+new file mode 100644
+index 0000000000..f597b37310
+--- /dev/null
++++ b/services/audiopolicy/managerdefault/dolby_debug.h
+@@ -0,0 +1,43 @@
++/*
++ * Shared Dolby debug helpers (session e9d9bf).
++ */
++#pragma once
++
++#include <cutils/properties.h>
++#include <fcntl.h>
++#include <unistd.h>
++#include <utils/Timers.h>
++
++namespace android {
++
++static inline bool dolbyDebugEnabled() {
++    char value[PROPERTY_VALUE_MAX] = {};
++    property_get("persist.vendor.dolby.debug", value, "0");
++    return value[0] == '1' || value[0] == 't' || value[0] == 'T';
++}
++
++// #region agent log
++static inline void dolbyAgentLog(const char* location, const char* message,
++                                 const char* hypothesisId, const char* dataJson) {
++    if (!dolbyDebugEnabled()) {
++        return;
++    }
++    const char* path = "/data/local/tmp/debug-e9d9bf.log";
++    const int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
++    if (fd < 0) {
++        return;
++    }
++    char line[640];
++    const int n = snprintf(line, sizeof(line),
++            "{\"sessionId\":\"e9d9bf\",\"runId\":\"framework\",\"hypothesisId\":\"%s\","
++            "\"location\":\"%s\",\"message\":\"%s\",\"data\":%s,\"timestamp\":%lld}\n",
++            hypothesisId, location, message, dataJson,
++            static_cast<long long>(systemTime(SYSTEM_TIME_REALTIME) / 1000000));
++    if (n > 0) {
++        write(fd, line, static_cast<size_t>(n));
++    }
++    close(fd);
++}
++// #endregion agent log
++
++} // namespace android
