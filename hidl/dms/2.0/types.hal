@@ -1,0 +1,22 @@
+/*
+ * Dolby Manager Service HIDL types (Sony/Motorola DMS 2.0).
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package vendor.dolby.hardware.dms@2.0;
+
+typedef int32_t AudioDevice;
+
+struct DapParamCache {
+    vec<int32_t> ids;
+    vec<int32_t> values;
+};
+
+struct KeyValue_AudioDevice_DapParamCache {
+    AudioDevice key;
+    DapParamCache value;
+};
+
+struct KeyValue_DapParameterId_ValueCache {
+    int32_t key;
+    vec<int32_t> value;
+};

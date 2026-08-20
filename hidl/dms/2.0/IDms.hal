@@ -1,0 +1,42 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package vendor.dolby.hardware.dms@2.0;
+
+import IDmsCallbacks;
+import IVqeCallbacks;
+import IDecCallbacks;
+
+interface IDms {
+    registerClient(IDmsCallbacks callbacks, int32_t sessionId, int32_t ioHandle);
+    unregisterClient(IDmsCallbacks callbacks, int32_t sessionId, int32_t ioHandle);
+
+    registerVqeCallback(IVqeCallbacks callbacks);
+    unregisterVqeCallback(IVqeCallbacks callbacks);
+    registerDecCallback(IDecCallbacks callbacks);
+    unregisterDecCallback(IDecCallbacks callbacks);
+
+    getStoredParams(bool forceReload, int32_t profileId) generates (
+            bool success, vec<int32_t> profileIds,
+            vec<KeyValue_AudioDevice_DapParamCache> params);
+    setDapParam(vec<uint8_t> param);
+    getDapParam(vec<uint8_t> request) generates (int32_t status, vec<uint8_t> response);
+    getProfileName(int32_t profileId) generates (string name);
+    getAvailableTuningDevicesLen(int32_t profileId) generates (int32_t len);
+    getAvailableTuningDevices(int32_t profileId) generates (vec<uint8_t> devices);
+    getSelectedTuningDevice(int32_t profileId) generates (vec<uint8_t> device);
+    setSelectedTuningDevice(int32_t profileId, vec<uint8_t> device);
+
+    getIntParam(int32_t paramId) generates (int64_t value);
+    setIntParam(int32_t paramId, int64_t value);
+    getIntParams(vec<int32_t> paramIds) generates (vec<int64_t> values);
+    setIntParams(vec<int32_t> paramIds, vec<int64_t> values);
+
+    setActiveDevice(int32_t device);
+    getActiveDevice() generates (int32_t device);
+    setChannelCount(int32_t count);
+    getChannelCount() generates (int32_t count);
+
+    notifyAudioTrackChange(int32_t sessionId, int32_t ioHandle, int32_t streamType,
+            int32_t trackId, int32_t state, int32_t sampleRate, int32_t channelMask);
+};

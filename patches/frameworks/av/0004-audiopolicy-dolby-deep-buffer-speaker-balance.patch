@@ -1,0 +1,48 @@
+# Temporary: keep stock deep-buffer speaker path when Dolby ON (fixes L/R imbalance).
+# EvoX 0002 originally stripped DEEP_BUFFER -> low-latency + speaker-safe HAL path.
+# Stock keeps deep-buffer-playback with empty custom_key; libar-pal L/R compensation works there.
+#
+# Apply on top of 0002-audiopolicy-sony-dolby.patch (SonyDolbyAudioPolicy.cpp in tree).
+#
+diff --git a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
+--- a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
++++ b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
+@@ -132,11 +132,11 @@ void sonyDolbyAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+                 AUDIO_OUTPUT_FLAG_DIRECT);
+     } else {
+-        // Route music through primary mixer where session-0 DAP lives.
++        // Stock keeps DEEP_BUFFER/FAST for Dolby music; only block offload/direct paths.
++        // Stripping DEEP_BUFFER forced low-latency + speaker-safe HAL path and broke L/R balance.
+         *flags = static_cast<audio_output_flags_t>(
+                 *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
+-                           AUDIO_OUTPUT_FLAG_FAST | AUDIO_OUTPUT_FLAG_HW_AV_SYNC |
+-                           AUDIO_OUTPUT_FLAG_DEEP_BUFFER));
++                           AUDIO_OUTPUT_FLAG_HW_AV_SYNC));
+     }
+ 
+     ALOGI("%s() dolby=%d dsee=%d dsee_prio=%d dsee_route=%d dolby_route=%d flags 0x%x -> 0x%x",
+@@ -178,8 +178,12 @@ bool sonyMusicOutputMatchesRouting(AudioPolicyClientInterface* client,
+         return onDirect || onDeepBuffer;
+     }
+     if (useDolbyRouting) {
+-        const bool onPrimary = (outputFlags & AUDIO_OUTPUT_FLAG_PRIMARY) != 0;
+-        return onPrimary && !onDirect && !onDeepBuffer;
++        if (onDirect || (outputFlags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0) {
++            return false;
++        }
++        const bool onPrimary = (outputFlags & AUDIO_OUTPUT_FLAG_PRIMARY) != 0;
++        // Stock Dolby ON: deep-buffer-playback (or primary mixer), not low-latency-only.
++        return onDeepBuffer || onPrimary;
+     }
+     return true;
+ }
+diff --git a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
+--- a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
++++ b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
+@@ -1,5 +1,5 @@
+ /*
+- * Sony/Moto Dolby routing: keep music on primary mixer (session-0 DAP), strip offload paths.
++ * Sony Dolby routing: block offload/direct when DAP on; keep deep-buffer like stock.
+  * DSEE-HX: strip DEEP_BUFFER and route via direct_pcm (stock audiopolicy behavior).
+  * SPDX-License-Identifier: Apache-2.0
+  */

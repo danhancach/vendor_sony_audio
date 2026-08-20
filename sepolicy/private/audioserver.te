@@ -1,2 +1,6 @@
-# audioserver EffectDapController reads persist.audio.dolby.enabled (audio_prop)
+# EffectDapController reads persist.audio.dolby.enabled (audio_prop).
 get_prop(audioserver, audio_prop)
+
+# DMS HIDL client (stock audioserver links vendor.dolby.hardware.dms@2.0.so).
+hal_client_domain(audioserver, hal_dms)
+allow audioserver hal_dms_hwservice:hwservice_manager find;

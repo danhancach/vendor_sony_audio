@@ -1,7 +1,8 @@
 # Sony Xperia 5 V stock A15 Dolby (sm8550 / pdx237)
 
 PRODUCT_SOONG_NAMESPACES += \
-    vendor/sony/dolby
+    vendor/sony/dolby \
+    vendor/sony/dolby/hidl
 
 AUDIO_FEATURE_ENABLED_DS2_DOLBY_DAP := true
 

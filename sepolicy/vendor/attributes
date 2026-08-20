@@ -1,3 +1,0 @@
-# hal_dms attribute declared in sepolicy/public/attributes.te
-attribute hal_dms_server;
-attribute hal_dms_client;

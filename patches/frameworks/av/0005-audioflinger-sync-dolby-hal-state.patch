@@ -1,0 +1,54 @@
+# Apply dle_ds_state from daxService directly to EffectDapController.
+# persist.audio.dolby.enabled cannot be set (SELinux denies audioserver + vendor);
+# EffectDapController only read the prop -> DAP stayed bypassed while HAL had dolby ON.
+#
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -1778,6 +1778,30 @@ bool sonyNeedsFullMusicInvalidate(const char* keyValuePairs) {
+             || strstr(keyValuePairs, "dolby_enable=0") != nullptr;
+ }
+ 
++void sonyApplyDolbyHalState(const char* keyValuePairs) {
++    if (keyValuePairs == nullptr) {
++        return;
++    }
++    AudioParameter param = AudioParameter(String8(keyValuePairs));
++    String8 str;
++    int value = 0;
++    bool found = false;
++    bool dolbyOn = false;
++    if (param.get(String8("dle_ds_state"), str) == NO_ERROR) {
++        dolbyOn = str == "true" || str == "1";
++        found = true;
++    } else if (param.getInt(String8("dle_ds_state"), value) == NO_ERROR) {
++        dolbyOn = value != 0;
++        found = true;
++    }
++    if (!found) {
++        return;
++    }
++    if (EffectDapController::instance() != nullptr) {
++        EffectDapController::instance()->updateBypassFromDolbyHalState(dolbyOn);
++    }
++}
++
+ }  // namespace
+ 
+ // Filter reserved keys from setParameters() before forwarding to audio HAL or acting upon.
+@@ -1897,6 +1921,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+         sonyRoutingChanged = isSonyEffectRoutingParameter(filteredKeyValuePairs.c_str());
+         }
+         if (sonyRoutingChanged) {
++            sonyApplyDolbyHalState(filteredKeyValuePairs.c_str());
+             ALOGI("%s: Sony effect routing param change, schedule music invalidate", __func__);
+             scheduleSonyMusicRoutingInvalidate(
+                     this, sonyNeedsFullMusicInvalidate(filteredKeyValuePairs.c_str()));
+@@ -1928,6 +1953,7 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+     if (thread != 0) {
+         status_t result = thread->setParameters(filteredKeyValuePairs);
+         if (isSonyEffectRoutingParameter(filteredKeyValuePairs.c_str())) {
++            sonyApplyDolbyHalState(filteredKeyValuePairs.c_str());
+             ALOGI("%s: Sony effect routing param on io %d, schedule music invalidate", __func__,
+                   ioHandle);
+             scheduleSonyMusicRoutingInvalidate(

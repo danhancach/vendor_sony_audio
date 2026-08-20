@@ -1,0 +1,12 @@
+// Dolby DMS HIDL package root + headers for stock prebuilt client lib.
+// SPDX-License-Identifier: Apache-2.0
+
+hidl_package_root {
+    name: "vendor.dolby.hardware",
+    path: "vendor/sony/dolby/hidl",
+}
+
+cc_library_headers {
+    name: "vendor.dolby.hardware.dms@2.0_headers",
+    export_include_dirs: ["include"],
+}

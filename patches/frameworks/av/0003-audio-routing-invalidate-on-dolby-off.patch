@@ -1,0 +1,55 @@
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+index e0ba233d92..3b4221c79e 100644
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -1768,6 +1768,16 @@ bool isSonyEffectRoutingParameter(const char* keyValuePairs) {
+             || strstr(keyValuePairs, "is_dsee_prioritized") != nullptr;
+ }
+ 
++bool sonyNeedsFullMusicInvalidate(const char* keyValuePairs) {
++    if (keyValuePairs == nullptr) {
++        return false;
++    }
++    return strstr(keyValuePairs, "dle_ds_state=0") != nullptr
++            || strstr(keyValuePairs, "dle_ds_state=false") != nullptr
++            || strstr(keyValuePairs, "dolby_dap_enable=0") != nullptr
++            || strstr(keyValuePairs, "dolby_enable=0") != nullptr;
++}
++
+ }  // namespace
+ 
+ // Filter reserved keys from setParameters() before forwarding to audio HAL or acting upon.
+@@ -1888,7 +1898,8 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+         }
+         if (sonyRoutingChanged) {
+             ALOGI("%s: Sony effect routing param change, schedule music invalidate", __func__);
+-            scheduleSonyMusicRoutingInvalidate(this);
++            scheduleSonyMusicRoutingInvalidate(
++                    this, sonyNeedsFullMusicInvalidate(filteredKeyValuePairs.c_str()));
+         }
+         return final_result;
+     }
+@@ -1919,7 +1930,8 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+         if (isSonyEffectRoutingParameter(filteredKeyValuePairs.c_str())) {
+             ALOGI("%s: Sony effect routing param on io %d, schedule music invalidate", __func__,
+                   ioHandle);
+-            scheduleSonyMusicRoutingInvalidate(this);
++            scheduleSonyMusicRoutingInvalidate(
++                    this, sonyNeedsFullMusicInvalidate(filteredKeyValuePairs.c_str()));
+         }
+         audio_utils::lock_guard _l(mutex());
+         forwardParametersToDownstreamPatches_l(thread->id(), filteredKeyValuePairs);
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index 2b08b99417..dc67fa7b66 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -189,6 +189,9 @@ void EffectDapController::updateBypassFromProperty_l() {
+         setBypass_l(bypass);
+         updateSkipEffectProcess(bypass);
+     }
++    if (changed && mAudioFlinger != nullptr) {
++        scheduleSonyMusicRoutingInvalidate(mAudioFlinger, /* invalidateAll= */ true);
++    }
+ }
+ 
+ status_t EffectDapController::setBypass_l(bool bypass) {

@@ -8,7 +8,6 @@ cc_defaults {
     name: "dolby_prebuilt_defaults",
     owner: "sony",
     compile_multilib: "64",
-    prefer: true,
     check_elf_files: false,
     strip: { none: true },
 }
@@ -71,6 +70,7 @@ cc_prebuilt_library_shared {
     target: { android_arm64: { srcs: ["proprietary/system_ext/lib64/vendor.dolby.hardware.dms@2.0.so"] } },
 }
 
+// Vendor copy for dms@2.0-service + codec2 (vendor linker namespace cannot load system_ext).
 cc_prebuilt_library_shared {
     name: "vendor.dolby.hardware.dms@2.0_vendor",
     defaults: ["dolby_vendor_lib_defaults"],

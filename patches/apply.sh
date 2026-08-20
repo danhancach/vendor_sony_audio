@@ -24,5 +24,6 @@ apply_one() {
     echo "applied: $(basename "$patch")"
 }
 
-apply_one "$HERE/frameworks/av/0001-audioflinger-effect-dap-controller.patch"
-apply_one "$HERE/frameworks/av/0002-audiopolicy-sony-dolby.patch"
+for n in 0001 0002 0003 0004 0005 0010; do
+    apply_one "$HERE/frameworks/av/${n}"*.patch
+done
