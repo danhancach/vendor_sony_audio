@@ -21,7 +21,7 @@ $(call inherit-product, vendor/sony/audio/config.mk)
 
 ```xml
 <project path="vendor/sony/audio"
-         name="danhancach/vendor_dolby"
+         name="danhancach/vendor_sony_audio"
          remote="github-non-los"
          revision="check-dolby"
          groups="pdx237,notdefault" />
