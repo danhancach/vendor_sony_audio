@@ -1,23 +1,23 @@
 # Sony Xperia 5 V stock A15 Dolby (sm8550 / pdx237)
 
 PRODUCT_SOONG_NAMESPACES += \
-    vendor/sony/dolby \
-    vendor/sony/dolby/hidl
+    vendor/sony/audio/dolby \
+    vendor/sony/audio/dolby/hidl
 
 AUDIO_FEATURE_ENABLED_DS2_DOLBY_DAP := true
 
 # Fragments via prebuilt_etc_xml only — do not also set DEVICE_MANIFEST_FILE.
 DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
-    vendor/sony/dolby/configs/vintf/dolby_framework_matrix.xml
+    vendor/sony/audio/dolby/configs/vintf/dolby_framework_matrix.xml
 
 BOARD_VENDOR_SEPOLICY_DIRS += \
-    vendor/sony/dolby/sepolicy/vendor
+    vendor/sony/audio/dolby/sepolicy/vendor
 
 SYSTEM_EXT_PUBLIC_SEPOLICY_DIRS += \
-    vendor/sony/dolby/sepolicy/public
+    vendor/sony/audio/dolby/sepolicy/public
 
 SYSTEM_EXT_PRIVATE_SEPOLICY_DIRS += \
-    vendor/sony/dolby/sepolicy/private
+    vendor/sony/audio/dolby/sepolicy/private
 
 # sm8550-common gates this XML behind TARGET_SUPPORTS_360RA; pdx237 is false.
 PRODUCT_COPY_FILES += \

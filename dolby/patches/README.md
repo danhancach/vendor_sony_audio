@@ -10,7 +10,7 @@ Not included (other ROM work, already in `.patchs/`):
 
 ```bash
 cd /home/tuan/android
-vendor/sony/dolby/patches/apply.sh
+vendor/sony/audio/dolby/patches/apply.sh
 ```
 
 ## Patches

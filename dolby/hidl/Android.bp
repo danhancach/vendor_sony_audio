@@ -3,7 +3,7 @@
 
 hidl_package_root {
     name: "vendor.dolby.hardware",
-    path: "vendor/sony/dolby/hidl",
+    path: "vendor/sony/audio/dolby/hidl",
 }
 
 cc_library_headers {
