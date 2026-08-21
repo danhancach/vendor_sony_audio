@@ -1,0 +1,670 @@
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+index c10b955c07..a6b896a659 100644
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -4629,6 +4629,11 @@ status_t AudioFlinger::createEffect(const media::CreateEffectRequest& request,
+             if (chain != 0) {
+                 audio_utils::lock_guard _l2(thread->mutex());
+                 thread->addEffectChain_l(chain);
++                if (sessionId == AUDIO_SESSION_OUTPUT_MIX &&
++                        EffectDapController::instance() != nullptr) {
++                    EffectDapController::instance()->onGlobalMixChainAttached(
++                            thread->asIAfPlaybackThread(), chain);
++                }
+             }
+         }
+ 
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index 3468d85032..2ff878bcd9 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -23,6 +23,7 @@ namespace android {
+ namespace {
+ 
+ constexpr const char* kDolbyEnabledProp = "persist.audio.dolby.enabled";
++constexpr nsecs_t kPregPrepMinIntervalNs = 50 * 1000000LL; // 50 ms debounce
+ 
+ status_t sendEffectIntParam(const sp<IAfEffectModule>& effect, int32_t paramId, int32_t value) {
+     if (effect == nullptr) {
+@@ -99,16 +100,6 @@ void EffectDapController::onAudioFlingerReady() {
+     }
+ }
+ 
+-bool EffectDapController::needsDapVolumeResync() {
+-    Mutex::Autolock _l(mLock);
+-    return mPendingDapVolumeResync && !mBypassed;
+-}
+-
+-void EffectDapController::clearPendingDapVolumeResync() {
+-    Mutex::Autolock _l(mLock);
+-    mPendingDapVolumeResync = false;
+-}
+-
+ void EffectDapController::destroy() {
+     if (sInstance != nullptr) {
+         sInstance->stopPropertyWatcher();
+@@ -165,8 +156,192 @@ bool EffectDapController::isDapEffect(const sp<IAfEffectBase>& effect) {
+             || memcmp(&uuid, &kDapSwUuid, sizeof(effect_uuid_t)) == 0;
+ }
+ 
++bool EffectDapController::isMusicListenerEffect(const sp<IAfEffectBase>& effect) {
++    if (effect == nullptr) {
++        return false;
++    }
++    static const effect_uuid_t kMusicListenerUuid = {
++        0x40f66c8b, 0x5aa5, 0x4345, 0x8919,
++        {0x53, 0xec, 0x43, 0x1a, 0xaa, 0x98}};
++    return memcmp(&effect->desc().uuid, &kMusicListenerUuid, sizeof(effect_uuid_t)) == 0;
++}
++
++bool EffectDapController::requestPregainPrep() {
++    const nsecs_t now = systemTime();
++    Mutex::Autolock _l(mLock);
++    if (mLastPregPrepNs != 0 && (now - mLastPregPrepNs) < kPregPrepMinIntervalNs) {
++        return false;
++    }
++    mLastPregPrepNs = now;
++    return true;
++}
++
++sp<IAfEffectModule> EffectDapController::globalDapEffect() {
++    Mutex::Autolock _l(mLock);
++    return mDapEffect;
++}
++
++void EffectDapController::executePregainPrep_l(const sp<IAfPlaybackThread>& mlThread) {
++    sp<IAfPlaybackThread> dapThread = mDapPlaybackThread.promote();
++    if (dapThread == nullptr || mDapEffect == nullptr) {
++        return;
++    }
++    mPendingDapPregPrep = dapThread;
++    if (mlThread != nullptr) {
++        mPendingMlForResync = mlThread;
++    }
++    ALOGV("%s() scheduled on mix io=%d", __func__, dapThread->id());
++}
++
++void EffectDapController::runPregainPrepSync(const sp<IAfPlaybackThread>& mlThread,
++        const sp<IAfPlaybackThread>& dapThread) {
++    dapThread->prepareDapPregainForTrackThread(mlThread);
++    if (mlThread != nullptr) {
++        mlThread->prepareDapPregainResyncVolumes();
++        ALOGI("%s() mix io=%d track io=%d", __func__, dapThread->id(), mlThread->id());
++    }
++}
++
++void EffectDapController::onDapPregPrepComplete_l() {
++    sp<IAfPlaybackThread> mlThread = mPendingMlForResync.promote();
++    if (mlThread == nullptr) {
++        return;
++    }
++    mPendingMlVolumeResync = mlThread;
++    mPendingMlForResync.clear();
++}
++
++bool EffectDapController::runPendingDapPregainOnMixThread(
++        const sp<IAfPlaybackThread>& mixThread) {
++    sp<IAfPlaybackThread> trackThread;
++    {
++        Mutex::Autolock _l(mLock);
++        if (!consumePendingDapPregPrep_l(mixThread)) {
++            return false;
++        }
++        trackThread = mPendingMlForResync.promote();
++    }
++    mixThread->prepareDapPregainForTrackThread(trackThread);
++    Mutex::Autolock _l(mLock);
++    onDapPregPrepComplete_l();
++    return true;
++}
++
++void EffectDapController::preparePregainForMusicListener(
++        const sp<IAfPlaybackThread>& mlThread) {
++    if (mlThread == nullptr) {
++        return;
++    }
++    sp<IAfPlaybackThread> dapThread;
++    {
++        Mutex::Autolock _l(mLock);
++        dapThread = mDapPlaybackThread.promote();
++        if (dapThread == nullptr || mDapEffect == nullptr) {
++            mPendingMlPregPrep = mlThread;
++            ALOGI("%s() deferred until global DAP bound", __func__);
++            return;
++        }
++    }
++    if (!requestPregainPrep()) {
++        return;
++    }
++    runPregainPrepSync(mlThread, dapThread);
++}
++
++void EffectDapController::runDeferredPregainPrep() {
++    sp<IAfPlaybackThread> mlThread;
++    {
++        Mutex::Autolock _l(mLock);
++        mlThread = mPendingMlPregPrep.promote();
++        if (mlThread == nullptr || mDapEffect == nullptr ||
++                mDapPlaybackThread.promote() == nullptr) {
++            return;
++        }
++        mPendingMlPregPrep.clear();
++    }
++    if (!requestPregainPrep()) {
++        return;
++    }
++    ALOGV("%s() running deferred ML preg prep", __func__);
++    Mutex::Autolock _l(mLock);
++    executePregainPrep_l(mlThread);
++}
++
++void EffectDapController::onGlobalMixChainAttached(
++        const sp<IAfPlaybackThread>& thread,
++        const sp<IAfEffectChain>& chain) {
++    if (thread == nullptr || chain == nullptr) {
++        return;
++    }
++    const sp<IAfThreadBase> threadBase = thread;
++    {
++        Mutex::Autolock _l(mLock);
++        mDapPlaybackThread = thread;
++        for (size_t i = 0; i < chain->numberOfEffects(); ++i) {
++            const sp<IAfEffectModule> effect = chain->getEffectModule(i);
++            if (isDapEffect(effect)) {
++                mDapEffect = effect;
++                ALOGI("%s() global DAP bound to playback thread", __func__);
++                break;
++            }
++        }
++    }
++    connectDmsIfNeeded(threadBase);
++    runDeferredPregainPrep();
++}
++
++void EffectDapController::finishDapRestartOnHostThread() {
++    Mutex::Autolock _l(mLock);
++    finishDapRestartForPregain_l();
++}
++
++void EffectDapController::finishDapRestartForPregain_l() {
++    if (mDapEffect == nullptr) {
++        return;
++    }
++    status_t status = sendEffectIntParam(mDapEffect, EFFECT_PARAM_SKIP_HARD_BYPASS, 1);
++    if (status != NO_ERROR) {
++        ALOGW("%s() SKIP_HARD_BYPASS failed: %d", __func__, status);
++    }
++    char value[PROPERTY_VALUE_MAX] = {};
++    property_get(kDolbyEnabledProp, value, "0");
++    const bool dolbyOn = mDolbyHalOn || parseDolbyEnabledProp(value);
++    if (dolbyOn) {
++        setBypass_l(false);
++    }
++}
++
++bool EffectDapController::consumePendingMlVolumeResync(
++        const sp<IAfPlaybackThread>& thread) {
++    sp<IAfPlaybackThread> pending;
++    {
++        Mutex::Autolock _l(mLock);
++        pending = mPendingMlVolumeResync.promote();
++        if (pending == nullptr || pending.get() != thread.get()) {
++            return false;
++        }
++        mPendingMlVolumeResync.clear();
++    }
++    ALOGV("%s() ML volume resync on mixer frame", __func__);
++    return true;
++}
++
++bool EffectDapController::consumePendingDapPregPrep_l(
++        const sp<IAfPlaybackThread>& thread) {
++    sp<IAfPlaybackThread> pending = mPendingDapPregPrep.promote();
++    if (pending == nullptr || pending.get() != thread.get()) {
++        return false;
++    }
++    mPendingDapPregPrep.clear();
++    return true;
++}
++
+ void EffectDapController::effectCreated(const sp<IAfEffectModule>& effect,
+                                         const sp<IAfThreadBase>& thread) {
++    if (isMusicListenerEffect(effect)) {
++        ALOGI("%s() Music Listener attached session %d", __func__, effect->sessionId());
++        return;
++    }
+     if (!isDapEffect(effect)) {
+         return;
+     }
+@@ -178,14 +353,21 @@ void EffectDapController::effectCreated(const sp<IAfEffectModule>& effect,
+         if (isNew) {
+             mBypassed = true;
+         }
++        if (thread != nullptr && effect->sessionId() == AUDIO_SESSION_OUTPUT_MIX) {
++            mDapPlaybackThread = thread->asIAfPlaybackThread();
++        }
+     }
+-    ALOGI("%s() DAP effect %s %p", __func__, isNew ? "created" : "reattached", effect.get());
+-    // DMS HIDL + callbacks must not run under mLock (deadlock with onDapParamUpdate /
+-    // updateBypassFromDolbyHalState, and TimeCheck on createEffect).
++    ALOGI("%s() DAP effect %s %p session=%d", __func__, isNew ? "created" : "reattached",
++            effect.get(), effect->sessionId());
+     connectDmsIfNeeded(thread);
+-    Mutex::Autolock _l(mLock);
+-    // Caller holds ThreadBase_Mutex — do not call AudioSystem::getParameters here.
+-    updateBypassFromProperty_l();
++    const bool isGlobalDap = effect->sessionId() == AUDIO_SESSION_OUTPUT_MIX;
++    {
++        Mutex::Autolock _l(mLock);
++        updateBypassFromProperty_l();
++    }
++    if (isGlobalDap) {
++        runDeferredPregainPrep();
++    }
+ }
+ 
+ void EffectDapController::effectReleased(const sp<IAfEffectModule>& effect) {
+@@ -195,6 +377,7 @@ void EffectDapController::effectReleased(const sp<IAfEffectModule>& effect) {
+     Mutex::Autolock _l(mLock);
+     if (mDapEffect == effect) {
+         mDapEffect.clear();
++        mDapPlaybackThread.clear();
+         mBypassed = true;
+         if (mDmsClient != nullptr) {
+             mDmsClient->disconnect();
+@@ -210,8 +393,9 @@ void EffectDapController::effectSuspended(const sp<IAfEffectBase>& effect, bool
+     ALOGD("%s() DAP effect suspended=%d", __func__, suspended);
+     if (!suspended) {
+         Mutex::Autolock _l(mLock);
+-        setBypass_l(mBypassed);
+-        updateSkipEffectProcess(mBypassed);
++        if (!mBypassed) {
++            setBypass_l(false);
++        }
+     }
+ }
+ 
+@@ -222,11 +406,11 @@ void EffectDapController::updateBypassFromProperty() {
+ 
+ void EffectDapController::updateBypassFromDolbyHalState(bool dolbyOn) {
+     Mutex::Autolock _l(mLock);
+-    if (mDolbyHalOn == dolbyOn) {
+-        return;
+-    }
++    const bool halChanged = (mDolbyHalOn != dolbyOn);
+     mDolbyHalOn = dolbyOn;
+-    ALOGI("%s() hal dolby=%d", __func__, dolbyOn ? 1 : 0);
++    if (halChanged) {
++        ALOGI("%s() hal dolby=%d", __func__, dolbyOn ? 1 : 0);
++    }
+     updateBypassFromProperty_l();
+ }
+ 
+@@ -237,14 +421,10 @@ void EffectDapController::applyBypassState_l(bool dolbyOn) {
+     if (changed) {
+         ALOGI("%s() dolby_on=%d bypass=%d", __func__, dolbyOn ? 1 : 0, bypass ? 1 : 0);
+     }
+-    if (mDapEffect != nullptr) {
+-        setBypass_l(bypass);
+-        updateSkipEffectProcess(bypass);
+-    }
+-    if (!bypass) {
+-        mPendingDapVolumeResync = true;
+-    } else {
+-        mPendingDapVolumeResync = false;
++    // Stock: preg runs with Dolby OFF — do not push SET_BYPASS=1 from audioserver.
++    // HAL/dle_ds_state handles Dolby-off tuning; SET_BYPASS only when un-bypassing.
++    if (mDapEffect != nullptr && dolbyOn) {
++        setBypass_l(false);
+     }
+ }
+ 
+@@ -275,15 +455,6 @@ status_t EffectDapController::setBypass_l(bool bypass) {
+     return status;
+ }
+ 
+-void EffectDapController::updateSkipEffectProcess(bool skip) {
+-    sp<IAfEffectModule> effect = mDapEffect;
+-    if (effect == nullptr) {
+-        return;
+-    }
+-    effect->setSkipEffectProcess(skip);
+-    ALOGD("%s() skipEffectProcess=%s", __func__, skip ? "skip" : "not skip");
+-}
+-
+ void EffectDapController::connectDmsIfNeeded(const sp<IAfThreadBase>& thread) {
+     if (mDmsClient == nullptr) {
+         return;
+@@ -311,20 +482,8 @@ void EffectDapController::connectDmsIfNeeded(const sp<IAfThreadBase>& thread) {
+ }
+ 
+ void EffectDapController::applyDapParamUpdate_l(const std::vector<uint8_t>& params) {
+-    sp<IAfEffectModule> effect = mDapEffect;
+-    if (effect == nullptr || params.empty()) {
+-        return;
+-    }
+-    if (params.size() < sizeof(effect_param_t)) {
+-        ALOGW("%s() DMS param too small: %zu", __func__, params.size());
+-        return;
+-    }
+-    std::vector<uint8_t> reply;
+-    const status_t status =
+-            effect->command(EFFECT_CMD_SET_PARAM, params, sizeof(int), &reply);
+-    if (status != NO_ERROR) {
+-        ALOGW("%s() SET_PARAM from DMS failed: %d (size=%zu)", __func__, status, params.size());
+-    }
++    // Stock Sony audioserver does not relay DMS blobs through EFFECT_CMD_SET_PARAM.
++    (void)params;
+ }
+ 
+ } // namespace android
+diff --git a/services/audioflinger/EffectDapController.h b/services/audioflinger/EffectDapController.h
+index 4e30b629bf..a05f70407e 100644
+--- a/services/audioflinger/EffectDapController.h
++++ b/services/audioflinger/EffectDapController.h
+@@ -24,14 +24,22 @@ public:
+     static void onAudioFlingerReady();
+     static void destroy();
+ 
++    static bool isMusicListenerEffect(const sp<IAfEffectBase>& effect);
++
+     void effectCreated(const sp<IAfEffectModule>& effect, const sp<IAfThreadBase>& thread);
+     void effectReleased(const sp<IAfEffectModule>& effect);
+     void effectSuspended(const sp<IAfEffectBase>& effect, bool suspended);
+ 
+     void updateBypassFromProperty();
+     void updateBypassFromDolbyHalState(bool dolbyOn);
+-    bool needsDapVolumeResync();
+-    void clearPendingDapVolumeResync();
++    bool requestPregainPrep();
++    sp<IAfEffectModule> globalDapEffect();
++    void preparePregainForMusicListener(const sp<IAfPlaybackThread>& mlThread);
++    void onGlobalMixChainAttached(const sp<IAfPlaybackThread>& thread,
++                                  const sp<IAfEffectChain>& chain);
++    void finishDapRestartOnHostThread();
++    bool consumePendingMlVolumeResync(const sp<IAfPlaybackThread>& thread);
++    bool runPendingDapPregainOnMixThread(const sp<IAfPlaybackThread>& mixThread);
+ 
+     void startPropertyWatcher();
+     void stopPropertyWatcher();
+@@ -42,9 +50,15 @@ private:
+ 
+     static bool isDapEffect(const sp<IAfEffectBase>& effect);
+     status_t setBypass_l(bool bypass);
+-    void updateSkipEffectProcess(bool skip);
+     void applyBypassState_l(bool dolbyOn);
+     void updateBypassFromProperty_l();
++    void finishDapRestartForPregain_l();
++    void executePregainPrep_l(const sp<IAfPlaybackThread>& mlThread);
++    void runPregainPrepSync(const sp<IAfPlaybackThread>& mlThread,
++                             const sp<IAfPlaybackThread>& dapThread);
++    void runDeferredPregainPrep();
++    bool consumePendingDapPregPrep_l(const sp<IAfPlaybackThread>& thread);
++    void onDapPregPrepComplete_l();
+ 
+     void connectDmsIfNeeded(const sp<IAfThreadBase>& thread);
+     void applyDapParamUpdate_l(const std::vector<uint8_t>& params);
+@@ -54,10 +68,15 @@ private:
+     std::unique_ptr<EffectDapDmsClient> mDmsClient;
+ 
+     sp<IAfEffectModule> mDapEffect;
++    wp<IAfPlaybackThread> mDapPlaybackThread;
++    wp<IAfPlaybackThread> mPendingMlVolumeResync;
++    wp<IAfPlaybackThread> mPendingMlPregPrep;
++    wp<IAfPlaybackThread> mPendingDapPregPrep;
++    wp<IAfPlaybackThread> mPendingMlForResync;
+     Mutex mLock;
+     bool mBypassed = true;
+     bool mDolbyHalOn = false;
+-    bool mPendingDapVolumeResync = false;
++    nsecs_t mLastPregPrepNs = 0;
+ 
+     std::atomic<bool> mPropWatchRunning{false};
+     pthread_t mPropWatchThread{};
+diff --git a/services/audioflinger/Effects.cpp b/services/audioflinger/Effects.cpp
+index cac2ed9f66..2e0eba9866 100644
+--- a/services/audioflinger/Effects.cpp
++++ b/services/audioflinger/Effects.cpp
+@@ -1573,6 +1573,32 @@ status_t EffectModule::setOffloaded_l(bool offloaded, audio_io_handle_t io)
+     return status;
+ }
+ 
++status_t EffectModule::sendOffloadForPregain_l(audio_io_handle_t io)
++{
++    audio_utils::lock_guard _l(mutex());
++    if (mStatus != NO_ERROR) {
++        return mStatus;
++    }
++    if (mEffectInterface == nullptr) {
++        return NO_INIT;
++    }
++    effect_offload_param_t cmd = {};
++    cmd.isOffload = 0;
++    cmd.ioHandle = io;
++    status_t cmdStatus = NO_ERROR;
++    uint32_t size = sizeof(status_t);
++    status_t status = mEffectInterface->command(EFFECT_CMD_OFFLOAD,
++                                                sizeof(effect_offload_param_t),
++                                                &cmd,
++                                                &size,
++                                                &cmdStatus);
++    if (status == NO_ERROR) {
++        status = cmdStatus;
++    }
++    ALOGV("%s() io=%d status=%d", __func__, io, status);
++    return status;
++}
++
+ bool EffectModule::isOffloaded_l() const
+ {
+     audio_utils::lock_guard _l(mutex());
+@@ -3944,4 +3970,28 @@ void DeviceEffectProxy::ProxyCallback::onEffectDisable(
+     effect->stop_l();
+ }
+ 
++void restartGlobalDapEffectForPregain(const sp<IAfEffectModule>& effect,
++                                      const sp<IAfEffectChain>& mixChain,
++                                      const sp<IAfPlaybackThread>& hostThread) {
++    if (effect == nullptr || mixChain == nullptr || hostThread == nullptr) {
++        return;
++    }
++    // Read thread state while caller holds PlaybackThread::mutex().
++    const AudioDeviceTypeAddrVector devices = hostThread->outDeviceTypeAddrs();
++    const audio_io_handle_t io = hostThread->id();
++
++    EffectModule* module = static_cast<EffectModule*>(effect.get());
++    audio_utils::lock_guard chainLock(mixChain->mutex());
++    // Stock: DISABLE → OFFLOAD(track io) → SET_CONFIG → SET_DEVICE → SET_CONFIG → ENABLE.
++    // DAP descriptor lacks EFFECT_FLAG_OFFLOAD_SUPPORTED so setOffloaded_l() skips OFFLOAD;
++    // vendor libswdap needs OFFLOAD to bind global DAP for PregainSynchronizer.
++    module->stop_l();
++    module->sendOffloadForPregain_l(io);
++    module->configure_l();
++    module->setDevices(devices);
++    module->configure_l();
++    module->start_l();
++    ALOGV("%s() DAP preg prep on track io=%d", __func__, io);
++}
++
+ } // namespace android
+diff --git a/services/audioflinger/Effects.h b/services/audioflinger/Effects.h
+index 5f98804d5c..868792ed03 100644
+--- a/services/audioflinger/Effects.h
++++ b/services/audioflinger/Effects.h
+@@ -226,6 +226,8 @@ public:
+ 
+     status_t setOffloaded_l(bool offloaded, audio_io_handle_t io) final
+             REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex;
++    status_t sendOffloadForPregain_l(audio_io_handle_t io)
++            REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex;
+     bool isOffloaded_l() const final
+             REQUIRES(audio_utils::EffectChain_Mutex) EXCLUDES_EffectBase_Mutex;
+     void addEffectToHal_l() override REQUIRES(audio_utils::EffectChain_Mutex);
+@@ -909,4 +911,8 @@ private:
+     const bool mNotifyFramesProcessed;
+ };
+ 
++void restartGlobalDapEffectForPregain(const sp<IAfEffectModule>& effect,
++                                      const sp<IAfEffectChain>& mixChain,
++                                      const sp<IAfPlaybackThread>& hostThread);
++
+ } // namespace android
+diff --git a/services/audioflinger/IAfThread.h b/services/audioflinger/IAfThread.h
+index f06614343b..7b535f6831 100644
+--- a/services/audioflinger/IAfThread.h
++++ b/services/audioflinger/IAfThread.h
+@@ -534,8 +534,10 @@ public:
+     virtual status_t setAppVolume(const String8& packageName, const float value) = 0;
+     virtual status_t setAppMute(const String8& packageName, const bool muted) = 0;
+     virtual void listAppVolumes(std::set<media::AppVolume> &container) = 0;
+-    virtual size_t resyncDapEffectVolumes_l() REQUIRES(mutex()) = 0;
+-
++    virtual void resyncActiveTrackEffectVolumes_l() REQUIRES(mutex()) = 0;
++    virtual void prepareDapPregainForTrackThread(const sp<IAfPlaybackThread>& /*trackThread*/)
++            EXCLUDES(mutex()) {}
++    virtual void prepareDapPregainResyncVolumes() EXCLUDES(mutex()) {}
+     // a very large number of suspend() will eventually wraparound, but unlikely
+     virtual void suspend() = 0;
+     virtual void restore() = 0;
+diff --git a/services/audioflinger/Threads.cpp b/services/audioflinger/Threads.cpp
+index 6fb3b2c942..2e9e91a101 100644
+--- a/services/audioflinger/Threads.cpp
++++ b/services/audioflinger/Threads.cpp
+@@ -25,6 +25,7 @@
+ 
+ #include "Client.h"
+ #include "EffectDapController.h"
++#include "Effects.h"
+ #include "IAfEffect.h"
+ #include "MelReporter.h"
+ #include "ResamplerBufferProvider.h"
+@@ -1657,6 +1658,8 @@ sp<IAfEffectHandle> ThreadBase::createEffect_l(
+     sp<IAfEffectChain> chain;
+     bool chainCreated = false;
+     bool effectCreated = false;
++    bool pregPrepNeeded = false;
++    sp<IAfPlaybackThread> mlForPregPrep;
+     audio_unique_id_t effectId = AUDIO_UNIQUE_ID_USE_UNSPECIFIED;
+ 
+     lStatus = initCheck();
+@@ -1707,11 +1710,10 @@ sp<IAfEffectHandle> ThreadBase::createEffect_l(
+             if (EffectDapController::instance() != nullptr) {
+                 EffectDapController::instance()->effectCreated(
+                         effect, sp<IAfThreadBase>::fromExisting(this));
+-                if (EffectDapController::instance()->needsDapVolumeResync()) {
+-                    const size_t synced = asIAfPlaybackThread()->resyncDapEffectVolumes_l();
+-                    if (synced > 0) {
+-                        EffectDapController::instance()->clearPendingDapVolumeResync();
+-                    }
++                if (effectCreated &&
++                        EffectDapController::isMusicListenerEffect(effect)) {
++                    pregPrepNeeded = true;
++                    mlForPregPrep = asIAfPlaybackThread();
+                 }
+             }
+         }
+@@ -1739,6 +1741,10 @@ sp<IAfEffectHandle> ThreadBase::createEffect_l(
+         }
+     }
+ 
++    if (pregPrepNeeded && EffectDapController::instance() != nullptr) {
++        EffectDapController::instance()->preparePregainForMusicListener(mlForPregPrep);
++    }
++
+ Exit:
+     if (!probe && lStatus != NO_ERROR && lStatus != ALREADY_EXISTS) {
+         audio_utils::lock_guard _l(mutex());
+@@ -6557,12 +6563,10 @@ PlaybackThread::mixer_state MixerThread::prepareTracks_l(
+     if (fastTracks > 0) {
+         mixerStatus = MIXER_TRACKS_READY;
+     }
+-    if (mMixerStatusIgnoringFastTracks == MIXER_TRACKS_READY &&
+-            EffectDapController::instance() != nullptr &&
+-            EffectDapController::instance()->needsDapVolumeResync()) {
+-        const size_t synced = asIAfPlaybackThread()->resyncDapEffectVolumes_l();
+-        if (synced > 0) {
+-            EffectDapController::instance()->clearPendingDapVolumeResync();
++    if (EffectDapController* ctrl = EffectDapController::instance(); ctrl != nullptr) {
++        ctrl->runPendingDapPregainOnMixThread(asIAfPlaybackThread());
++        if (ctrl->consumePendingMlVolumeResync(asIAfPlaybackThread())) {
++            resyncActiveTrackEffectVolumes_l();
+         }
+     }
+     return mixerStatus;
+@@ -6575,9 +6579,35 @@ uint32_t PlaybackThread::trackCountForUid_l(uid_t uid) const
+             [uid](const auto& track) { return track->uid() == uid; });
+ }
+ 
+-size_t PlaybackThread::resyncDapEffectVolumes_l() {
+-    size_t syncedTracks = 0;
+-    constexpr float kScaleTo8_24 = static_cast<float>(1 << 24) * static_cast<float>(1 << 24);
++void PlaybackThread::prepareDapPregainForTrackThread(
++        const sp<IAfPlaybackThread>& trackThread) {
++    audio_utils::lock_guard _l(mutex());
++    EffectDapController* ctrl = EffectDapController::instance();
++    if (ctrl == nullptr) {
++        return;
++    }
++    const sp<IAfEffectModule> dap = ctrl->globalDapEffect();
++    const sp<IAfEffectChain> mixChain = getEffectChain_l(AUDIO_SESSION_OUTPUT_MIX);
++    const sp<IAfPlaybackThread> ioThread =
++            trackThread != nullptr ? trackThread : asIAfPlaybackThread();
++    if (dap == nullptr || mixChain == nullptr || ioThread == nullptr) {
++        ALOGW("%s() skip mix io=%d track io=%d dap=%p mixChain=%p", __func__, id(),
++                ioThread != nullptr ? ioThread->id() : -1, dap.get(), mixChain.get());
++        return;
++    }
++    restartGlobalDapEffectForPregain(dap, mixChain, ioThread);
++    ctrl->finishDapRestartOnHostThread();
++    ALOGV("%s() track io=%d mix io=%d", __func__, ioThread->id(), id());
++}
++
++void PlaybackThread::prepareDapPregainResyncVolumes() {
++    audio_utils::lock_guard _l(mutex());
++    resyncActiveTrackEffectVolumes_l();
++}
++
++void PlaybackThread::resyncActiveTrackEffectVolumes_l() {
++    const float scaleTo8_24 =
++            static_cast<float>(MAX_GAIN_INT) * static_cast<float>(MAX_GAIN_INT);
+     for (const sp<IAfTrackBase>& trackBase : mActiveTracks) {
+         const sp<IAfTrack> track = trackBase->asIAfTrack();
+         if (track == nullptr) {
+@@ -6586,15 +6616,16 @@ size_t PlaybackThread::resyncDapEffectVolumes_l() {
+         float left = 0.f;
+         float right = 0.f;
+         track->getFinalVolume(&left, &right);
+-        uint32_t vl = static_cast<uint32_t>(kScaleTo8_24 * left);
+-        uint32_t vr = static_cast<uint32_t>(kScaleTo8_24 * right);
++        if (left <= 0.f && right <= 0.f) {
++            continue;
++        }
++        uint32_t vl = static_cast<uint32_t>(scaleTo8_24 * left);
++        uint32_t vr = static_cast<uint32_t>(scaleTo8_24 * right);
+         sp<IAfEffectChain> chain = getEffectChain_l(track->sessionId());
+         if (chain != nullptr) {
+             chain->setVolume(&vl, &vr, true /* force */);
+-            syncedTracks++;
+         }
+     }
+-    return syncedTracks;
+ }
+ 
+ bool PlaybackThread::IsTimestampAdvancing::check(AudioStreamOut* output)
+diff --git a/services/audioflinger/Threads.h b/services/audioflinger/Threads.h
+index 80bd309a90..0f3e8aca64 100644
+--- a/services/audioflinger/Threads.h
++++ b/services/audioflinger/Threads.h
+@@ -1129,8 +1129,10 @@ public:
+     status_t setAppVolume(const String8& packageName, const float value) final;
+     status_t setAppMute(const String8& packageName, const bool muted) final;
+     void listAppVolumes(std::set<media::AppVolume> &container) final;
+-    size_t resyncDapEffectVolumes_l() final REQUIRES(mutex());
+-
++    void resyncActiveTrackEffectVolumes_l() final REQUIRES(mutex());
++    void prepareDapPregainForTrackThread(const sp<IAfPlaybackThread>& trackThread) final
++            EXCLUDES(mutex());
++    void prepareDapPregainResyncVolumes() final EXCLUDES(mutex());
+ protected:
+     // Code snippets that were lifted up out of threadLoop()
+     virtual void threadLoop_mix() REQUIRES(ThreadBase_ThreadLoop) = 0;

@@ -23,5 +23,7 @@ vendor/sony/audio/dolby/patches/apply.sh
 | `0004-audiopolicy-dolby-deep-buffer-speaker-balance.patch` | Keep DEEP_BUFFER speaker path when Dolby ON |
 | `0005-audioflinger-sync-dolby-hal-state.patch` | Sync `dle_ds_state` HAL → `EffectDapController` |
 | `0010-audioflinger-dms-hidl-client.patch` | DMS HIDL client, SET_BYPASS, DAP volume resync |
+| `0011-audioflinger-dms-no-set-param-forward.patch` | Do not relay DMS blobs via EFFECT_CMD_SET_PARAM |
+| `0012-audioflinger-pregain-prep.patch` | Stock pregain prep: OFFLOAD + DAP cycle on Music Listener attach |
 
 Patches `0001`–`0005` match git commit `95a61944a2` in `frameworks/av` (squashed Sony Dolby port).

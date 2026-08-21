@@ -1,0 +1,30 @@
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index 3468d85032..be0a660c35 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -311,20 +311,11 @@ void EffectDapController::connectDmsIfNeeded(const sp<IAfThreadBase>& thread) {
+ }
+ 
+ void EffectDapController::applyDapParamUpdate_l(const std::vector<uint8_t>& params) {
+-    sp<IAfEffectModule> effect = mDapEffect;
+-    if (effect == nullptr || params.empty()) {
+-        return;
+-    }
+-    if (params.size() < sizeof(effect_param_t)) {
+-        ALOGW("%s() DMS param too small: %zu", __func__, params.size());
+-        return;
+-    }
+-    std::vector<uint8_t> reply;
+-    const status_t status =
+-            effect->command(EFFECT_CMD_SET_PARAM, params, sizeof(int), &reply);
+-    if (status != NO_ERROR) {
+-        ALOGW("%s() SET_PARAM from DMS failed: %d (size=%zu)", __func__, status, params.size());
+-    }
++    // Stock Sony audioserver does not relay DMS blobs through EFFECT_CMD_SET_PARAM.
++    // libswdap registers its own IDmsCallbacks client (connectDolbyService) and applies
++    // tuning in DapEffectContext::updateDapParams(). Raw HIDL blobs reject with -EINVAL
++    // when forwarded as SET_PARAM (size=12/17 in logcat).
++    (void)params;
+ }
+ 
+ } // namespace android
