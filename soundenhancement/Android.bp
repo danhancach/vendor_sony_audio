@@ -1,0 +1,42 @@
+// Sony Xperia 5 V stock A15 Sound Enhancement UI (pdx237)
+// SPDX-License-Identifier: Apache-2.0
+
+soong_namespace {
+}
+
+android_app_import {
+    name: "SoundEnhancement",
+    owner: "sony",
+    apk: "proprietary/system_ext/priv-app/SoundEnhancement/SoundEnhancement.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+    privileged: true,
+    system_ext_specific: true,
+}
+
+prebuilt_etc {
+    name: "com.sonyericsson.soundenhancement.xml",
+    owner: "sony",
+    src: "proprietary/system_ext/etc/permissions/com.sonyericsson.soundenhancement.xml",
+    filename_from_src: true,
+    sub_dir: "permissions",
+    system_ext_specific: true,
+}
+
+prebuilt_etc {
+    name: "exceptions-soundenhancement.xml",
+    owner: "sony",
+    src: "proprietary/system_ext/etc/default-permissions/exceptions-soundenhancement.xml",
+    filename_from_src: true,
+    sub_dir: "default-permissions",
+    system_ext_specific: true,
+}
+
+prebuilt_etc {
+    name: "config_com.sonyericsson.soundenhancement_preferences.xml",
+    owner: "sony",
+    src: "proprietary/system_ext/etc/sysconfig/config_com.sonyericsson.soundenhancement_preferences.xml",
+    filename_from_src: true,
+    sub_dir: "sysconfig",
+    system_ext_specific: true,
+}

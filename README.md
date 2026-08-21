@@ -4,10 +4,11 @@ Umbrella tree for stock Sony audio ports on AOSP 17:
 
 ```text
 vendor/sony/audio/
-├── config.mk      # ROM entry — inherit from device.mk
-├── dolby/         # Dolby DAP + DMS (stock A15 port)
-├── 360RA/         # 360 Reality Audio (placeholder)
-└── DSEE/          # DSEE-HX (placeholder)
+├── config.mk           # ROM entry — inherit from device.mk
+├── dolby/              # Dolby DAP + DMS (stock A15 port)
+├── soundenhancement/   # Sound Enhancement UI (stock A15 priv-app)
+├── 360RA/              # 360 Reality Audio (placeholder)
+└── DSEE/               # DSEE-HX (placeholder)
 ```
 
 ## Integrate

@@ -1,0 +1,7 @@
+# Stock A15 pdx237 — paths relative to sony-stock-fw/extracted
+# Regenerate: ./extract-from-stock.sh
+
+system_ext/priv-app/SoundEnhancement/SoundEnhancement.apk
+system_ext/etc/permissions/com.sonyericsson.soundenhancement.xml
+system_ext/etc/default-permissions/exceptions-soundenhancement.xml
+system_ext/etc/sysconfig/config_com.sonyericsson.soundenhancement_preferences.xml
