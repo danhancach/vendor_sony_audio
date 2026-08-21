@@ -8,7 +8,7 @@ vendor/sony/audio/
 ├── dolby/              # Dolby DAP + DMS (stock A15 port)
 ├── soundenhancement/   # Sound Enhancement UI (stock A15 priv-app)
 ├── 360RA/              # 360 Reality Audio (placeholder)
-└── DSEE/               # DSEE-HX (placeholder)
+└── DSEE/               # DSEE-HX params + frameworks/av codec notify patch
 ```
 
 ## Integrate

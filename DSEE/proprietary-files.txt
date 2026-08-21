@@ -1,0 +1,13 @@
+# Stock A15 DSEE-HX params — paths relative to sony-stock-fw/extracted and proprietary/
+# libsonydseehxwrapper ships from vendor/sony/sm8550-common (not listed here).
+# Regenerate: ./extract-from-stock.sh
+
+vendor/etc/dsx_param_file.bin
+vendor/etc/DrangeparaAAC64.bin
+vendor/etc/DrangeparaAAC128.bin
+vendor/etc/DrangeparaAAC256.bin
+vendor/etc/DrangeparaMP3_128.bin
+vendor/etc/DrangeparaMP3_160.bin
+vendor/etc/DrangeparaMP3_192.bin
+vendor/etc/DrangeparaPCM441.bin
+vendor/etc/DrangeparaPCM48.bin
