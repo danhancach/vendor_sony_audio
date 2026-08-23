@@ -1,5 +1,14 @@
-# 360RA runtime props (product partition — survives system-only OTA if product is flashed).
+# 360RA product init (product partition — survives system-only OTA if product is flashed).
 # libtsrupmix requires vendor.360ra.effect=1 before Upmix effect can be created.
+# Seed/restorecon here because device_specific init.sony-360ra.rc may be missing if ODM was not reflashed.
 
 on early-boot
     setprop vendor.360ra.effect 1
+
+on post-fs-data
+    mkdir /data/vendor/360ra 0775 audioserver audio
+    restorecon /data/vendor/360ra
+    exec - audioserver audio -- /system/bin/sh -c "if [ -d /vendor/etc/360ra ]; then cp -rn /vendor/etc/360ra/. /data/vendor/360ra/; find /data/vendor/360ra -type d -exec chmod 0775 {} +; find /data/vendor/360ra -type f -exec chmod 0664 {} +; chown -R audioserver:audio /data/vendor/360ra; restorecon -RF /data/vendor/360ra; fi"
+
+on boot
+    restorecon -RF /data/vendor/360ra

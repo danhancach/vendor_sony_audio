@@ -9,14 +9,16 @@ DEVICE_FRAMEWORK_COMPATIBILITY_MATRIX_FILE += \
 BOARD_VENDOR_SEPOLICY_DIRS += \
     vendor/sony/audio/360RA/sepolicy/vendor
 
+PRODUCT_PUBLIC_SEPOLICY_DIRS += \
+    vendor/sony/audio/360RA/sepolicy/public
+
 PRODUCT_PRIVATE_SEPOLICY_DIRS += \
     vendor/sony/audio/360RA/sepolicy/product
 
 PRODUCT_COPY_FILES += \
     vendor/sony/audio/360RA/configs/sysconfig/config-jp.co.sony.threesixtyra.system.xml:$(TARGET_COPY_OUT_PRODUCT)/etc/sysconfig/config-jp.co.sony.threesixtyra.system.xml
 
-# Sony stock blobs replace AOSP at image assembly (same install paths).
-# BUILD_BROKEN_DUP_RULES := true in pdx237 BoardConfig.mk.
+# Sony stock blobs replace AOSP at image assembly (same vendor install paths).
 PRODUCT_COPY_FILES += \
     vendor/sony/audio/360RA/proprietary/vendor/lib64/soundfx/libbundlewrapper.so:$(TARGET_COPY_OUT_VENDOR)/lib64/soundfx/libbundlewrapper.so \
     vendor/sony/audio/360RA/proprietary/vendor/lib64/libcodec2_soft_common.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcodec2_soft_common.so \
