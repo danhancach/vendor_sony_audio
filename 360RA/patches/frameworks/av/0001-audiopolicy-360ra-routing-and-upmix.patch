@@ -1,0 +1,403 @@
+diff --git a/services/audiopolicy/managerdefault/Android.bp b/services/audiopolicy/managerdefault/Android.bp
+index b0d7a4c27f..1f6b5c9c97 100644
+--- a/services/audiopolicy/managerdefault/Android.bp
++++ b/services/audiopolicy/managerdefault/Android.bp
+@@ -19,6 +19,7 @@ cc_library_shared {
+         "AudioPolicyManager.cpp",
+         "EngineLibrary.cpp",
+         "SonyDolbyAudioPolicy.cpp",
++        "Sony360RAudioPolicy.cpp",
+     ],
+ 
+     export_include_dirs: ["."],
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index f9cafbc30f..8e8f78c7e2 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -57,6 +57,7 @@
+ 
+ #include "AudioPolicyManager.h"
+ #include "SonyDolbyAudioPolicy.h"
++#include "Sony360RAudioPolicy.h"
+ #include "SpatializerHelper.h"
+ #include "TypeConverter.h"
+ 
+@@ -1425,6 +1426,8 @@ status_t AudioPolicyManager::getOutputForAttrInt(
+     }
+     *stream = mEngine->getStreamTypeForAttributes(*resultAttr);
+     sonyDolbyAdjustOutputFlags(mpClientInterface, *stream, flags);
++    sony360RaAdjustOutputFlags(mpClientInterface, *stream, config, flags);
++    sonyUpdate360RaContentsForConfig(mpClientInterface, *stream, config);
+ 
+     ALOGV("%s() attributes=%s stream=%s session %d selectedDeviceId %d", __func__,
+           toString(*resultAttr).c_str(), toString(*stream).c_str(), session, requestedPortId);
+@@ -1734,8 +1737,8 @@ status_t AudioPolicyManager::openDirectOutput(audio_stream_type_t stream,
+ 
+     *output = AUDIO_IO_HANDLE_NONE;
+ 
+-    // Dolby DAP lives on session-0 mixer; block direct/offload when Dolby is on.
+-    if (stream == AUDIO_STREAM_MUSIC && sonyDolbyEnabled(mpClientInterface)) {
++    // Dolby DAP lives on session-0 mixer; block direct/offload when Dolby-only routing.
++    if (stream == AUDIO_STREAM_MUSIC && sonyUsesDolbyRouting(mpClientInterface)) {
+         return NAME_NOT_FOUND;
+     }
+ 
+@@ -1907,6 +1910,7 @@ audio_io_handle_t AudioPolicyManager::getOutputForDevices(
+         *flags = (audio_output_flags_t)AUDIO_OUTPUT_FLAG_DEEP_BUFFER;
+     }
+     sonyDolbyAdjustOutputFlags(mpClientInterface, stream, flags);
++    sony360RaAdjustOutputFlags(mpClientInterface, stream, config, flags);
+     if (stream == AUDIO_STREAM_TTS) {
+         *flags = AUDIO_OUTPUT_FLAG_TTS;
+     } else if (stream == AUDIO_STREAM_VOICE_CALL &&
+@@ -2599,7 +2603,10 @@ status_t AudioPolicyManager::startOutput(
+ 
+     if (status == NO_ERROR) {
+         if (client->stream() == AUDIO_STREAM_MUSIC) {
++            sonyNotifyUpmixPlayingPkg(mpClientInterface, outputDesc->mIoHandle, client->uid());
+             sonyNotifyPlayingPkgUid(mpClientInterface, outputDesc->mIoHandle, client->uid());
++            sonyUpdate360RaContentsForClient(mpClientInterface, client->stream(),
++                                             client->config().channel_mask, true);
+         }
+         if (outputDesc->mPreferredAttrInfo != nullptr &&
+                 outputDesc->isBitPerfect()) {
+@@ -2930,6 +2937,8 @@ status_t AudioPolicyManager::stopOutput(audio_port_handle_t portId)
+ 
+     if (status == NO_ERROR ) {
+         if (client->stream() == AUDIO_STREAM_MUSIC) {
++            sonyUpdate360RaContentsForClient(mpClientInterface, client->stream(),
++                                             client->config().channel_mask, false);
+             bool hasOtherMusic = false;
+             for (const auto& other : outputDesc->getClientIterable()) {
+                 if (other->portId() != portId && other->stream() == AUDIO_STREAM_MUSIC) {
+@@ -5271,7 +5280,7 @@ bool AudioPolicyManager::isOffloadPossible(const audio_offload_info_t &offloadIn
+         return false; // no offloading if mono is set.
+     }
+ 
+-    if (offloadInfo.stream_type == AUDIO_STREAM_MUSIC && sonyDolbyEnabled(mpClientInterface)) {
++    if (offloadInfo.stream_type == AUDIO_STREAM_MUSIC && sonyUsesDolbyRouting(mpClientInterface)) {
+         ALOGV("%s: offload disabled because Dolby is enabled", __func__);
+         return false;
+     }
+@@ -5281,6 +5290,17 @@ bool AudioPolicyManager::isOffloadPossible(const audio_offload_info_t &offloadIn
+         return false;
+     }
+ 
++    audio_config_t config = {
++            .sample_rate = offloadInfo.sample_rate,
++            .channel_mask = offloadInfo.channel_mask,
++            .format = offloadInfo.format,
++    };
++    if (sonyCheckUpmixIsApplicable(mpClientInterface, offloadInfo.stream_type, &config,
++                                   AUDIO_OUTPUT_FLAG_NONE)) {
++        ALOGV("%s: Upmix is allowed", __func__);
++        return true;
++    }
++
+     // Check if offload has been disabled
+     if (property_get_bool("audio.offload.disable", false /* default_value */)) {
+         ALOGV("%s: offload disabled by audio.offload.disable", __func__);
+diff --git a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+new file mode 100644
+index 0000000000..e7ada3e5c9
+--- /dev/null
++++ b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+@@ -0,0 +1,261 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#define LOG_TAG "Sony360RAudioPolicy"
++
++#include "Sony360RAudioPolicy.h"
++
++#include <media/AudioParameter.h>
++#include <cutils/properties.h>
++#include <fstream>
++#include <limits>
++#include <string>
++#include <utils/Log.h>
++
++#include "AudioPolicyInterface.h"
++
++namespace android {
++
++namespace {
++
++constexpr uint32_t kSony360RaMaskBase = 0x72f000U;
++constexpr uint32_t kSony360RaMaskMaxDelta = 0x607U;
++
++bool sonyGetHalInt(AudioPolicyClientInterface* client, const char* key, int* value) {
++    if (client == nullptr || key == nullptr || value == nullptr) {
++        return false;
++    }
++    const String8 result = client->getParameters(AUDIO_IO_HANDLE_NONE, String8(key));
++    if (result.length() == 0) {
++        return false;
++    }
++    AudioParameter param(result);
++    return param.getInt(String8(key), *value) == NO_ERROR;
++}
++
++uint32_t sonyChannelCount(audio_channel_mask_t mask) {
++    if (mask == AUDIO_CHANNEL_NONE) {
++        return 0;
++    }
++    if (audio_channel_mask_get_representation(mask) == AUDIO_CHANNEL_REPRESENTATION_INDEX) {
++        return audio_channel_count_from_out_mask(mask);
++    }
++    return audio_channel_count_from_out_mask(mask);
++}
++
++}  // namespace
++
++bool sony360RaEnabled() {
++    char value[PROPERTY_VALUE_MAX] = {};
++    property_get("vendor.360ra.effect", value, "");
++    return value[0] == '1';
++}
++
++bool sony360RaUpmixModeActive(AudioPolicyClientInterface* client) {
++    if (!sony360RaEnabled()) {
++        return false;
++    }
++    int mode = 0;
++    if (!sonyGetHalInt(client, "360ra_upmix_headphone", &mode) &&
++            !sonyGetHalInt(client, "enable_360ss", &mode)) {
++        return false;
++    }
++    return mode != 0;
++}
++
++bool sony360RaContentsActive(AudioPolicyClientInterface* client) {
++    if (!sony360RaEnabled()) {
++        return false;
++    }
++    int contents = 0;
++    return sonyGetHalInt(client, "360ra_contents", &contents) && contents != 0;
++}
++
++bool sonyUses360RaEffectRouting(AudioPolicyClientInterface* client) {
++    return sony360RaUpmixModeActive(client) || sony360RaContentsActive(client);
++}
++
++void sony360RaForceMixerRoutingFlags(audio_output_flags_t* flags) {
++    if (flags == nullptr) {
++        return;
++    }
++    const audio_output_flags_t before = *flags;
++    *flags = static_cast<audio_output_flags_t>(
++            *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
++                       AUDIO_OUTPUT_FLAG_HW_AV_SYNC));
++    if ((before & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0 &&
++            (before & AUDIO_OUTPUT_FLAG_FAST) == 0) {
++        *flags = static_cast<audio_output_flags_t>(*flags | AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
++    }
++}
++
++bool sonyIs360RaChannelMask(audio_channel_mask_t mask) {
++    if (mask == AUDIO_CHANNEL_NONE) {
++        return false;
++    }
++    const uint32_t maskValue = static_cast<uint32_t>(mask);
++    if (maskValue >= kSony360RaMaskBase &&
++        (maskValue - kSony360RaMaskBase) <= kSony360RaMaskMaxDelta) {
++        return true;
++    }
++    return sonyChannelCount(mask) >= 13;
++}
++
++std::string sonyPackageNameForUid(uid_t uid) {
++    std::ifstream packages("/data/system/packages.list");
++    if (!packages.is_open()) {
++        return {};
++    }
++    std::string package;
++    uid_t pkgUid = static_cast<uid_t>(-1);
++    while (packages >> package >> pkgUid) {
++        if (pkgUid == uid) {
++            return package;
++        }
++        packages.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
++    }
++    return {};
++}
++
++bool sonyIsUpmixApplicable(AudioPolicyClientInterface* client) {
++    if (!sony360RaEnabled()) {
++        return false;
++    }
++    int applicable = 0;
++    if (!sonyGetHalInt(client, "360ra_upmix_applicable", &applicable)) {
++        return true;
++    }
++    return applicable != 0;
++}
++
++bool sonyCheckUpmixIsApplicable(AudioPolicyClientInterface* client, audio_stream_type_t stream,
++                                const audio_config_t* config, audio_output_flags_t flags) {
++    if (!sony360RaEnabled() || config == nullptr) {
++        return false;
++    }
++    if (sonyIs360RaChannelMask(config->channel_mask)) {
++        if (stream != AUDIO_STREAM_MUSIC) {
++            ALOGV("%s: false due to non music 360RA channel mask", __func__);
++            return false;
++        }
++        if (!audio_is_linear_pcm(config->format)) {
++            ALOGV("%s: false due to non linear pcm", __func__);
++            return false;
++        }
++        if ((flags & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_HW_AV_SYNC)) != 0) {
++            ALOGV("%s: false due to unsupported flags 0x%x", __func__, flags);
++            return false;
++        }
++        ALOGV("%s: 360RA channel mask applicable", __func__);
++        return sonyIsUpmixApplicable(client);
++    }
++    if ((flags & AUDIO_OUTPUT_FLAG_DIRECT) != 0) {
++        ALOGV("%s: DIRECT output, upmix path allowed", __func__);
++        return true;
++    }
++    if (!audio_is_linear_pcm(config->format)) {
++        ALOGV("%s: false due to non linear pcm", __func__);
++        return false;
++    }
++    if (stream != AUDIO_STREAM_MUSIC && config->channel_mask != AUDIO_CHANNEL_OUT_MONO) {
++        ALOGV("%s: false due to non music or invalid channel", __func__);
++        return false;
++    }
++    if (sonyChannelCount(config->channel_mask) < 3) {
++        ALOGV("%s: false due to non music or invalid channel", __func__);
++        return false;
++    }
++    if ((flags & (AUDIO_OUTPUT_FLAG_FAST | AUDIO_OUTPUT_FLAG_DEEP_BUFFER)) == 0) {
++        ALOGV("%s: false due to unsupported flags 0x%x", __func__, flags);
++        return false;
++    }
++    if ((flags & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) != 0) {
++        ALOGV("%s: DEEP_BUFFER is OK", __func__);
++    }
++    return sonyIsUpmixApplicable(client);
++}
++
++void sony360RaAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream_type_t stream,
++                                const audio_config_t* config, audio_output_flags_t* flags) {
++    if (flags == nullptr || config == nullptr || stream != AUDIO_STREAM_MUSIC) {
++        return;
++    }
++    // Stereo upmix runs through global session-0 effects on the deep-buffer mixer path.
++    if (sony360RaUpmixModeActive(client) && sonyChannelCount(config->channel_mask) <= 2) {
++        const audio_output_flags_t before = *flags;
++        sony360RaForceMixerRoutingFlags(flags);
++        ALOGI("%s: 360RA upmix mode active, stereo flags 0x%x -> 0x%x", __func__, before, *flags);
++        return;
++    }
++    if (!sonyCheckUpmixIsApplicable(client, stream, config, *flags)) {
++        return;
++    }
++    const audio_output_flags_t before = *flags;
++    *flags = static_cast<audio_output_flags_t>(
++            *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
++                       AUDIO_OUTPUT_FLAG_HW_AV_SYNC));
++    if ((before & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0) {
++        *flags = static_cast<audio_output_flags_t>(*flags | AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
++    }
++    ALOGI("%s: 360RA upmix applicable flags 0x%x -> 0x%x", __func__, before, *flags);
++}
++
++void sonySet360RaContents(AudioPolicyClientInterface* client, bool active) {
++    if (client == nullptr || !sony360RaEnabled()) {
++        return;
++    }
++    AudioParameter param;
++    param.addInt(String8("360ra_contents"), active ? 1 : 0);
++    ALOGI("%s: 360ra_contents=%d", __func__, active ? 1 : 0);
++    client->setParameters(AUDIO_IO_HANDLE_NONE, param.toString());
++}
++
++void sonyUpdate360RaContentsForConfig(AudioPolicyClientInterface* client,
++                                      audio_stream_type_t stream, const audio_config_t* config) {
++    if (config == nullptr) {
++        return;
++    }
++    if (stream != AUDIO_STREAM_MUSIC && config->channel_mask != AUDIO_CHANNEL_OUT_MONO) {
++        return;
++    }
++    sonySet360RaContents(client, sonyIs360RaChannelMask(config->channel_mask));
++}
++
++void sonyUpdate360RaContentsForClient(AudioPolicyClientInterface* client,
++                                      audio_stream_type_t stream,
++                                      audio_channel_mask_t channelMask, bool starting) {
++    if (client == nullptr) {
++        return;
++    }
++    if (stream != AUDIO_STREAM_MUSIC) {
++        if (!starting) {
++            sonySet360RaContents(client, false);
++        }
++        return;
++    }
++    if (starting) {
++        sonySet360RaContents(client, sonyIs360RaChannelMask(channelMask));
++        return;
++    }
++    if (sonyIs360RaChannelMask(channelMask)) {
++        sonySet360RaContents(client, false);
++    }
++}
++
++void sonyNotifyUpmixPlayingPkg(AudioPolicyClientInterface* client, audio_io_handle_t io, uid_t uid) {
++    if (client == nullptr || !sony360RaEnabled()) {
++        return;
++    }
++  (void)io;
++    const std::string package = sonyPackageNameForUid(uid);
++    AudioParameter param;
++    if (!package.empty()) {
++        param.add(String8("chk_upmix_playing_pkg_name"), String8(package.c_str()));
++    }
++    param.addInt(String8("chk_upmix_playing_pkg_uid"), static_cast<int>(uid));
++    ALOGI("%s: uid=%u pkg=%s", __func__, uid,
++          package.empty() ? "(unknown)" : package.c_str());
++    client->setParameters(AUDIO_IO_HANDLE_NONE, param.toString());
++}
++
++}  // namespace android
+diff --git a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h
+new file mode 100644
+index 0000000000..b3c7c690af
+--- /dev/null
++++ b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h
+@@ -0,0 +1,31 @@
++/*
++ * Sony 360 Reality Audio routing hooks (stock AudioPolicyManager extensions).
++ * SPDX-License-Identifier: Apache-2.0
++ */
++#pragma once
++
++#include <system/audio.h>
++
++namespace android {
++
++class AudioPolicyClientInterface;
++
++bool sony360RaEnabled();
++bool sony360RaUpmixModeActive(AudioPolicyClientInterface* client);
++bool sonyUses360RaEffectRouting(AudioPolicyClientInterface* client);
++void sony360RaForceMixerRoutingFlags(audio_output_flags_t* flags);
++bool sonyIs360RaChannelMask(audio_channel_mask_t mask);
++bool sonyIsUpmixApplicable(AudioPolicyClientInterface* client);
++bool sonyCheckUpmixIsApplicable(AudioPolicyClientInterface* client, audio_stream_type_t stream,
++                                const audio_config_t* config, audio_output_flags_t flags);
++void sony360RaAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream_type_t stream,
++                                const audio_config_t* config, audio_output_flags_t* flags);
++void sonySet360RaContents(AudioPolicyClientInterface* client, bool active);
++void sonyUpdate360RaContentsForConfig(AudioPolicyClientInterface* client,
++                                        audio_stream_type_t stream, const audio_config_t* config);
++void sonyUpdate360RaContentsForClient(AudioPolicyClientInterface* client,
++                                      audio_stream_type_t stream,
++                                      audio_channel_mask_t channelMask, bool starting);
++void sonyNotifyUpmixPlayingPkg(AudioPolicyClientInterface* client, audio_io_handle_t io, uid_t uid);
++
++}  // namespace android
