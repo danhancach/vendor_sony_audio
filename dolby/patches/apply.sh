@@ -24,6 +24,6 @@ apply_one() {
     echo "applied: $(basename "$patch")"
 }
 
-for n in 0001 0002 0003 0004 0005 0010 0011 0012; do
+for n in 0001 0002 0003 0004 0005 0010 0011 0012 0013; do
     apply_one "$HERE/frameworks/av/${n}"*.patch
 done

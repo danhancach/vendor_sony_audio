@@ -25,5 +25,7 @@ vendor/sony/audio/dolby/patches/apply.sh
 | `0010-audioflinger-dms-hidl-client.patch` | DMS HIDL client, SET_BYPASS, DAP volume resync |
 | `0011-audioflinger-dms-no-set-param-forward.patch` | Do not relay DMS blobs via EFFECT_CMD_SET_PARAM |
 | `0012-audioflinger-pregain-prep.patch` | Stock pregain prep: OFFLOAD + DAP cycle on Music Listener attach |
+| `0013-audio-dolby-dsee-runtime-priority.patch` | Dolby > 360RA > DSEE routing invalidate, stock routing watcher, MixerThread invalid cleanup |
 
 Patches `0001`–`0005` match git commit `95a61944a2` in `frameworks/av` (squashed Sony Dolby port).
+360RA routing hooks: `360RA/patches/frameworks/av/0001-*` (apply before `0013`).
