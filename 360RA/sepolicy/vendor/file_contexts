@@ -1,4 +1,5 @@
-# 360 RA data
+# 360 RA data (explicit dir + contents; mkdir alone can stay unlabeled until restorecon)
+/data/vendor/360ra u:object_r:vendor_threesixtyra_data_file:s0
 /data/vendor/360ra(/.*)? u:object_r:vendor_threesixtyra_data_file:s0
 
 # 360 RA seed blobs (copied to /data/vendor/360ra on first boot)
