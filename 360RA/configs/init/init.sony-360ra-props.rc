@@ -1,0 +1,5 @@
+# 360RA runtime props (product partition — survives system-only OTA if product is flashed).
+# libtsrupmix requires vendor.360ra.effect=1 before Upmix effect can be created.
+
+on early-boot
+    setprop vendor.360ra.effect 1

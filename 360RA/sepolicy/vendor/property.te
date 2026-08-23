@@ -1,0 +1,5 @@
+vendor_internal_prop(vendor_sony_spatializer_dolby_prop)
+
+# 360RA runtime properties (stock: odm_property_contexts).
+vendor_internal_prop(vendor_360ra_prop)
+vendor_restricted_prop(vendor_360ra_restricted_prop)

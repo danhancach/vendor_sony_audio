@@ -1,0 +1,8 @@
+# 360 RA data
+/data/vendor/360ra(/.*)? u:object_r:vendor_threesixtyra_data_file:s0
+
+# 360 RA seed blobs (copied to /data/vendor/360ra on first boot)
+/(vendor|system/vendor)/etc/360ra(/.*)? u:object_r:vendor_configs_file:s0
+
+# 360 RA Codec2 HAL
+/(vendor|system/vendor)/bin/hw/android\.hardware\.media\.c2@1\.0-threesixty-ra-service u:object_r:mediacodec_exec:s0

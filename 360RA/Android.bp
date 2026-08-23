@@ -1,0 +1,202 @@
+// Sony Xperia 5 V stock A15 360 Reality Audio (pdx237)
+// SPDX-License-Identifier: Apache-2.0
+
+soong_namespace {
+}
+
+cc_defaults {
+    name: "360ra_prebuilt_defaults",
+    owner: "sony",
+    compile_multilib: "64",
+    check_elf_files: false,
+    strip: { none: true },
+}
+
+cc_defaults {
+    name: "360ra_vendor_lib_defaults",
+    defaults: ["360ra_prebuilt_defaults"],
+    soc_specific: true,
+}
+
+cc_defaults {
+    name: "360ra_soundfx_defaults",
+    defaults: ["360ra_vendor_lib_defaults"],
+    relative_install_path: "soundfx",
+}
+
+android_app_import {
+    name: "ThreeSixtyRASettings",
+    owner: "sony",
+    apk: "proprietary/product/app/ThreeSixtyRASettings/ThreeSixtyRASettings.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+    product_specific: true,
+}
+
+android_app_import {
+    name: "ThreeSixtyRASystem",
+    owner: "sony",
+    apk: "proprietary/product/priv-app/ThreeSixtyRASystem/ThreeSixtyRASystem.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+    privileged: true,
+    product_specific: true,
+}
+
+android_app_import {
+    name: "ThreeSixtyRASystem-pdx237-Overlay",
+    owner: "sony",
+    apk: "proprietary/product/overlay/ThreeSixtyRASystem-pdx237-Overlay.apk",
+    certificate: "platform",
+    dex_preopt: { enabled: false },
+    product_specific: true,
+}
+
+dex_import {
+    name: "com.sony.threesixtyra.audiofx",
+    owner: "sony",
+    jars: ["proprietary/product/framework/com.sony.threesixtyra.audiofx.jar"],
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "com.sony.360ra.xml",
+    owner: "sony",
+    src: "proprietary/product/etc/permissions/com.sony.360ra.xml",
+    filename_from_src: true,
+    sub_dir: "permissions",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "com.sony.threesixtyra.audiofx.xml",
+    owner: "sony",
+    src: "proprietary/product/etc/permissions/com.sony.threesixtyra.audiofx.xml",
+    filename_from_src: true,
+    sub_dir: "permissions",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "jp.co.sony.threesixtyra.system.xml",
+    owner: "sony",
+    src: "proprietary/product/etc/permissions/jp.co.sony.threesixtyra.system.xml",
+    filename_from_src: true,
+    sub_dir: "permissions",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "default-permissions-360ra.apps.xml",
+    owner: "sony",
+    src: "proprietary/product/etc/default-permissions/default-permissions-360ra.apps.xml",
+    filename_from_src: true,
+    sub_dir: "default-permissions",
+    product_specific: true,
+}
+
+prebuilt_etc_xml {
+    name: "vendor.threesixty_ra.codec2.xml",
+    owner: "sony",
+    src: "proprietary/vendor/etc/vintf/manifest/vendor.threesixty_ra.codec2.xml",
+    filename_from_src: true,
+    sub_dir: "vintf/manifest",
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "android.hardware.media.c2@1.0-threesixty-ra-service.rc",
+    src: "configs/init/android.hardware.media.c2@1.0-threesixty-ra-service.rc",
+    filename_from_src: true,
+    sub_dir: "init",
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "media_codecs_sony_c2_audio.xml",
+    src: "configs/media_codecs_sony_c2_audio.xml",
+    filename_from_src: true,
+    soc_specific: true,
+}
+
+prebuilt_etc {
+    name: "android.hardware.media.c2@1.2-default-seccomp_policy",
+    src: "proprietary/vendor/etc/seccomp_policy/android.hardware.media.c2@1.2-default-seccomp_policy",
+    filename_from_src: true,
+    sub_dir: "seccomp_policy",
+    soc_specific: true,
+}
+
+cc_prebuilt_binary {
+    name: "android.hardware.media.c2@1.0-threesixty-ra-service",
+    defaults: ["360ra_vendor_lib_defaults"],
+    relative_install_path: "hw",
+    target: {
+        android_arm64: {
+            srcs: ["proprietary/vendor/bin/hw/android.hardware.media.c2@1.0-threesixty-ra-service"],
+            shared_libs: [
+                "android.hardware.media.c2@1.0",
+                "android.hardware.media.c2@1.1",
+                "android.hardware.media.c2@1.2",
+                "libcodec2_hidl@1.0",
+                "libcodec2_hidl@1.1",
+                "libcodec2_hidl@1.2",
+                "libcodec2_vndk",
+                "libhidlbase",
+            ],
+        },
+    },
+}
+
+cc_prebuilt_library_shared {
+    name: "libcodec2_soft_mha1dec",
+    defaults: ["360ra_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libcodec2_soft_mha1dec.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libcodec2_soft_mhm1dec",
+    defaults: ["360ra_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libcodec2_soft_mhm1dec.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libthreesixty_ra_codec2_store",
+    defaults: ["360ra_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libthreesixty_ra_codec2_store.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libupmix-lib",
+    defaults: ["360ra_vendor_lib_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/libupmix-lib.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libtsrspatializer",
+    defaults: ["360ra_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libtsrspatializer.so"] } },
+}
+
+cc_prebuilt_library_shared {
+    name: "libtsrupmix",
+    defaults: ["360ra_soundfx_defaults"],
+    target: { android_arm64: { srcs: ["proprietary/vendor/lib64/soundfx/libtsrupmix.so"] } },
+}
+
+prebuilt_etc {
+    name: "init.sony-360ra-props.rc",
+    owner: "sony",
+    src: "configs/init/init.sony-360ra-props.rc",
+    filename_from_src: true,
+    sub_dir: "init",
+    product_specific: true,
+}
+
+prebuilt_etc {
+    name: "alc.speaker.bin",
+    owner: "sony",
+    src: "proprietary/vendor/etc/alc.speaker.bin",
+    filename_from_src: true,
+    soc_specific: true,
+}

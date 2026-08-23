@@ -1,0 +1,28 @@
+# Stock A15 360RA blobs — paths relative to sony-stock-fw/extracted and proprietary/
+# Regenerate: ./extract-from-stock.sh
+
+product/app/ThreeSixtyRASettings/ThreeSixtyRASettings.apk
+product/priv-app/ThreeSixtyRASystem/ThreeSixtyRASystem.apk
+product/overlay/ThreeSixtyRASystem-pdx237-Overlay.apk
+product/framework/com.sony.threesixtyra.audiofx.jar
+product/etc/permissions/com.sony.360ra.xml
+product/etc/permissions/com.sony.threesixtyra.audiofx.xml
+product/etc/permissions/jp.co.sony.threesixtyra.system.xml
+product/etc/default-permissions/default-permissions-360ra.apps.xml
+vendor/bin/hw/android.hardware.media.c2@1.0-threesixty-ra-service
+vendor/etc/alc.speaker.bin
+vendor/etc/seccomp_policy/android.hardware.media.c2@1.2-default-seccomp_policy
+vendor/etc/vintf/manifest/vendor.threesixty_ra.codec2.xml
+vendor/lib64/libcodec2_soft_mha1dec.so
+vendor/lib64/libcodec2_soft_mhm1dec.so
+vendor/lib64/libcodec2_soft_common.so
+vendor/lib64/libsfplugin_ccodec_utils.so
+vendor/lib64/libthreesixty_ra_codec2_store.so
+vendor/lib64/libupmix-lib.so
+vendor/lib64/soundfx/libbundlewrapper.so
+vendor/lib64/soundfx/libbundlewrapper1.so
+vendor/lib64/soundfx/libbundlewrapper2.so
+vendor/lib64/soundfx/libbundlewrapper3.so
+vendor/lib64/soundfx/libbundlewrapper4.so
+vendor/lib64/soundfx/libtsrspatializer.so
+vendor/lib64/soundfx/libtsrupmix.so

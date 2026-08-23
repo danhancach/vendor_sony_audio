@@ -1,2 +1,2 @@
-# 360 Reality Audio — not ported yet (pdx237 stock uses separate codec2 stack).
-# Enable when blobs, sepolicy, and frameworks/av hooks are ready.
+# Sony Xperia 5 V stock A15 360 Reality Audio — product entry
+$(call inherit-product, vendor/sony/audio/360RA/360ra.mk)

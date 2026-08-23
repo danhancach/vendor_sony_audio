@@ -1,0 +1,2 @@
+# Product init sets vendor.360ra.effect on boot (init.sony-360ra-props.rc).
+set_prop(init, vendor_360ra_prop)

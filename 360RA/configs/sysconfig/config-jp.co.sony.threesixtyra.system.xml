@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config>
+    <!-- UpmixAudioEffect calls hidden AudioEffect APIs (setParameter, checkStatus, …). -->
+    <hidden-api-whitelisted-app package="jp.co.sony.threesixtyra.system" />
+</config>

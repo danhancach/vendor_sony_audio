@@ -7,7 +7,7 @@ vendor/sony/audio/
 ├── config.mk           # ROM entry — inherit from device.mk
 ├── dolby/              # Dolby DAP + DMS (stock A15 port)
 ├── soundenhancement/   # Sound Enhancement UI (stock A15 priv-app)
-├── 360RA/              # 360 Reality Audio (placeholder)
+├── 360RA/              # 360 Reality Audio (stock A15 port)
 └── DSEE/               # DSEE-HX params + frameworks/av codec notify patch
 ```
 
@@ -29,3 +29,5 @@ $(call inherit-product, vendor/sony/audio/config.mk)
 ```
 
 `dolby/` details: [dolby/README.md](dolby/README.md)
+
+`360RA/` details: [360RA/README.md](360RA/README.md)
