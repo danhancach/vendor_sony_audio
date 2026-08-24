@@ -4,7 +4,9 @@ PRODUCT_SOONG_NAMESPACES += \
     vendor/sony/audio/soundenhancement
 
 PRODUCT_PACKAGES += \
+    ExtendedAudioService \
     SoundEnhancement \
+    com.sonymobile.audioutil.xml \
     com.sonyericsson.soundenhancement.xml \
     exceptions-soundenhancement.xml \
     config_com.sonyericsson.soundenhancement_preferences.xml

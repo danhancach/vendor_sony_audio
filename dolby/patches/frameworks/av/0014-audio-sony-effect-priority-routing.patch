@@ -1,0 +1,406 @@
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index ebdd6810d8..a5903fa826 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -9,10 +9,12 @@
+ #include "EffectDapDmsClient.h"
+ 
+ #include <cutils/properties.h>
++#include <binder/PermissionController.h>
+ #include <media/AudioEffect.h>
+ #include <media/AudioParameter.h>
+ #include <strings.h>
+ #include <vector>
++#include <string>
+ #include <sys/system_properties.h>
+ #include <unistd.h>
+ #include <utils/Log.h>
+@@ -67,6 +69,45 @@ void* dolbyPropertyWatchEntry(void* /*arg*/) {
+     return nullptr;
+ }
+ 
++static std::vector<std::string> parseSomcPkgList(const char* list) {
++    std::vector<std::string> out;
++    if (list == nullptr || list[0] == '\0') {
++        return out;
++    }
++    const std::string s(list);
++    size_t start = 0;
++    for (size_t i = 0; i <= s.size(); ++i) {
++        if (i == s.size() || s[i] == ',' || s[i] == ';') {
++            if (i > start) {
++                std::string pkg = s.substr(start, i - start);
++                while (!pkg.empty() && pkg.front() == ' ') {
++                    pkg.erase(0, 1);
++                }
++                while (!pkg.empty() && pkg.back() == ' ') {
++                    pkg.pop_back();
++                }
++                if (!pkg.empty()) {
++                    out.push_back(pkg);
++                }
++            }
++            start = i + 1;
++        }
++    }
++    return out;
++}
++
++static bool pkgInSomcList(const std::string& pkg, const std::vector<std::string>& list) {
++    if (pkg.empty()) {
++        return false;
++    }
++    for (const auto& entry : list) {
++        if (entry == pkg) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ } // namespace
+ 
+ EffectDapController* EffectDapController::sInstance = nullptr;
+@@ -177,7 +218,31 @@ status_t EffectDapController::setSkipEffectProcess_l(const sp<IAfEffectModule>&
+     return NO_ERROR;
+ }
+ 
++bool EffectDapController::isPlayingPkgPrioritized_l() const {
++    if (pkgInSomcList(mPlayingPkgName, mExcludedApps)) {
++        return false;
++    }
++    if (pkgInSomcList(mPlayingPkgName, mPrioritizedApps)) {
++        return true;
++    }
++    if (mPlayingPkgUid == static_cast<uid_t>(-1) || mPlayingPkgUid == 0) {
++        return false;
++    }
++    PermissionController permissionController;
++    for (const auto& pkg : mPrioritizedApps) {
++        const int pkgUid = permissionController.getPackageUid(String16(pkg.c_str()), 0);
++        if (pkgUid >= 0 && static_cast<uid_t>(pkgUid) == mPlayingPkgUid) {
++            return true;
++        }
++    }
++    return false;
++}
++
+ bool EffectDapController::queryUpmixSupportedPkg_l() {
++    if (isPlayingPkgPrioritized_l()) {
++        ALOGI("%s: Upmix Supported Pkg status cached: prioritized list", __func__);
++        return true;
++    }
+     if (mAudioFlinger == nullptr) {
+         return false;
+     }
+@@ -188,11 +253,15 @@ bool EffectDapController::queryUpmixSupportedPkg_l() {
+     AudioParameter param(result);
+     int value = 0;
+     if (param.getInt(String8("isUpmixSupportedPkg"), value) == NO_ERROR) {
+-        return value != 0;
++        const bool supported = value != 0;
++        ALOGI("%s: Upmix Supported Pkg status cached: HAL=%d", __func__, supported ? 1 : 0);
++        return supported;
+     }
+     String8 str;
+     if (param.get(String8("isUpmixSupportedPkg"), str) == NO_ERROR) {
+-        return str == "1" || str == "true";
++        const bool supported = str == "1" || str == "true";
++        ALOGI("%s: Upmix Supported Pkg status cached: HAL=%s", __func__, str.c_str());
++        return supported;
+     }
+     return false;
+ }
+@@ -203,9 +272,11 @@ void EffectDapController::updateEffectPriority_l() {
+     const bool dolbyActive = mDolbyHalOn || parseDolbyEnabledProp(value);
+     const bool upmixModeOn = mUpmixHeadphoneMode != 0;
+     const bool native360 = m360raContents;
+-    const bool upmixWins = upmixModeOn &&
+-            (native360 || !dolbyActive || mUpmixSupportedPkg);
+-    const bool dapSkip = native360 || !dolbyActive || upmixWins;
++    const bool sonySonyActive = upmixModeOn || mDseeHalOn || native360;
++    // Stock: 360 and DSEE share the same Dolby arbitration via effect priority.
++    const bool sonyWinsOverDolby = sonySonyActive &&
++            (!dolbyActive || mUpmixSupportedPkg);
++    const bool dapSkip = native360 || !dolbyActive || sonyWinsOverDolby;
+     const bool upmixSkip = !upmixModeOn || (dolbyActive && !native360 && !mUpmixSupportedPkg);
+ 
+     if (mDapEffect != nullptr) {
+@@ -249,15 +320,53 @@ void EffectDapController::on360RaContents(bool active) {
+ }
+ 
+ void EffectDapController::onUpmixPlayingPkg(uid_t uid, const char* packageName) {
++    {
++        Mutex::Autolock _l(mLock);
++        mPlayingPkgUid = uid;
++        if (packageName != nullptr && packageName[0] != '\0') {
++            mPlayingPkgName = packageName;
++            ALOGI("%s: uid=%u pkg=%s", __func__, uid, packageName);
++        } else {
++            mPlayingPkgName.clear();
++            ALOGI("%s: uid=%u", __func__, uid);
++        }
++        mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
++        updateEffectPriority_l();
++        char value[PROPERTY_VALUE_MAX] = {};
++        property_get(kDolbyEnabledProp, value, "0");
++        const bool dolbyOn = mDolbyHalOn || parseDolbyEnabledProp(value);
++        finishRoutingUpdate_l(dolbyOn);
++    }
++    runAfterRoutingUpdate();
++}
++
++void EffectDapController::onSomcPrioritizedApps(const char* prioritizedApps) {
+     Mutex::Autolock _l(mLock);
+-    mPlayingPkgUid = uid;
+-    if (packageName != nullptr && packageName[0] != '\0') {
+-        ALOGI("%s: uid=%u pkg=%s", __func__, uid, packageName);
+-    } else {
+-        ALOGI("%s: uid=%u", __func__, uid);
++    mPrioritizedApps = parseSomcPkgList(prioritizedApps);
++    ALOGI("%s: prioritized=%zu playing_pkg=%s", __func__, mPrioritizedApps.size(),
++          mPlayingPkgName.empty() ? "(none)" : mPlayingPkgName.c_str());
++    mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
++    updateEffectPriority_l();
++    if (mAudioFlinger != nullptr) {
++        mAudioFlinger->invalidateMusicTracksOnAllPlaybackThreads();
+     }
++}
++
++void EffectDapController::onSomcExcludedApps(const char* excludedApps) {
++    Mutex::Autolock _l(mLock);
++    mExcludedApps = parseSomcPkgList(excludedApps);
++    ALOGI("%s: excluded=%zu playing_pkg=%s", __func__, mExcludedApps.size(),
++          mPlayingPkgName.empty() ? "(none)" : mPlayingPkgName.c_str());
+     mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
+     updateEffectPriority_l();
++    if (mAudioFlinger != nullptr) {
++        mAudioFlinger->invalidateMusicTracksOnAllPlaybackThreads();
++    }
++}
++
++void EffectDapController::onSomcAppLists(const char* prioritizedApps, const char* excludedApps) {
++    onSomcPrioritizedApps(prioritizedApps);
++    onSomcExcludedApps(excludedApps);
+ }
+ 
+ bool EffectDapController::isMusicListenerEffect(const sp<IAfEffectBase>& effect) {
+@@ -547,7 +656,7 @@ void EffectDapController::updateBypassFromDseeHalState(bool dseeOn) {
+         const bool halChanged = (mDseeHalOn != dseeOn);
+         mDseeHalOn = dseeOn;
+         if (halChanged) {
+-            ALOGI("%s() hal dsee=%d (Dolby wins PCM when both on)", __func__, dseeOn ? 1 : 0);
++            ALOGI("%s() hal dsee=%d", __func__, dseeOn ? 1 : 0);
+         }
+         char value[PROPERTY_VALUE_MAX] = {};
+         property_get(kDolbyEnabledProp, value, "0");
+@@ -567,22 +676,22 @@ void EffectDapController::updateBypassFromDseeHalState(bool dseeOn) {
+ }
+ 
+ void EffectDapController::finishRoutingUpdate_l(bool dolbyOn) {
+-    const bool newDolbyRoute = dolbyOn;
+-    const bool newDseeRoute = mDseeHalOn && !dolbyOn;
++    const bool dseeRoute = mDseeHalOn && (!dolbyOn || mUpmixSupportedPkg);
++    const bool dolbyMixerRoute = dolbyOn && !dseeRoute;
+     if (!mEffectiveRoutingInitialized) {
+-        mEffectiveDolbyRoute = newDolbyRoute;
+-        mEffectiveDseeRoute = newDseeRoute;
++        mEffectiveDolbyRoute = dolbyMixerRoute;
++        mEffectiveDseeRoute = dseeRoute;
+         mEffectiveRoutingInitialized = true;
+         return;
+     }
+-    if (mEffectiveDolbyRoute == newDolbyRoute && mEffectiveDseeRoute == newDseeRoute) {
++    if (mEffectiveDolbyRoute == dolbyMixerRoute && mEffectiveDseeRoute == dseeRoute) {
+         return;
+     }
+     ALOGI("%s() routing changed dolby %d->%d dsee %d->%d, invalidate music",
+-          __func__, mEffectiveDolbyRoute ? 1 : 0, newDolbyRoute ? 1 : 0,
+-          mEffectiveDseeRoute ? 1 : 0, newDseeRoute ? 1 : 0);
+-    mEffectiveDolbyRoute = newDolbyRoute;
+-    mEffectiveDseeRoute = newDseeRoute;
++          __func__, mEffectiveDolbyRoute ? 1 : 0, dolbyMixerRoute ? 1 : 0,
++          mEffectiveDseeRoute ? 1 : 0, dseeRoute ? 1 : 0);
++    mEffectiveDolbyRoute = dolbyMixerRoute;
++    mEffectiveDseeRoute = dseeRoute;
+     mInvalidateMusicAfterUnlock = true;
+ }
+ 
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index 8e8f78c7e2..85e8707e75 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -1737,8 +1737,9 @@ status_t AudioPolicyManager::openDirectOutput(audio_stream_type_t stream,
+ 
+     *output = AUDIO_IO_HANDLE_NONE;
+ 
+-    // Dolby DAP lives on session-0 mixer; block direct/offload when Dolby-only routing.
+-    if (stream == AUDIO_STREAM_MUSIC && sonyUsesDolbyRouting(mpClientInterface)) {
++    // Block direct when Dolby mixer routing; allow DIRECT when DSEE routing wins.
++    if (stream == AUDIO_STREAM_MUSIC && sonyUsesDolbyRouting(mpClientInterface) &&
++            !sonyUsesDseeRouting(mpClientInterface)) {
+         return NAME_NOT_FOUND;
+     }
+ 
+@@ -5280,8 +5281,10 @@ bool AudioPolicyManager::isOffloadPossible(const audio_offload_info_t &offloadIn
+         return false; // no offloading if mono is set.
+     }
+ 
+-    if (offloadInfo.stream_type == AUDIO_STREAM_MUSIC && sonyUsesDolbyRouting(mpClientInterface)) {
+-        ALOGV("%s: offload disabled because Dolby is enabled", __func__);
++    if (offloadInfo.stream_type == AUDIO_STREAM_MUSIC &&
++            sonyUsesDolbyRouting(mpClientInterface) &&
++            !sonyUsesDseeRouting(mpClientInterface)) {
++        ALOGV("%s: offload disabled because Dolby mixer routing is active", __func__);
+         return false;
+     }
+ 
+diff --git a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
+index 612fbab3fa..5759f68df5 100644
+--- a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
++++ b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.cpp
+@@ -56,6 +56,24 @@ bool sonyGetHalInt(AudioPolicyClientInterface* client, const char* key, int* val
+     return param.getInt(String8(key), *value) == NO_ERROR;
+ }
+ 
++// Stock: preset list + excluded override; HAL mirrors via isUpmixSupportedPkg /
++// is_dsee_prioritized for the current playing_pkg.
++bool sonySonyEffectWinsOverDolby(AudioPolicyClientInterface* client) {
++    int upmixPkg = 0;
++    if (sonyGetHalInt(client, "isUpmixSupportedPkg", &upmixPkg) && upmixPkg != 0) {
++        return true;
++    }
++    bool dseePrio = false;
++    if (sonyGetHalBool(client, "is_dsee_prioritized", &dseePrio) && dseePrio) {
++        return true;
++    }
++    int dseePrioInt = 0;
++    if (sonyGetHalInt(client, "is_dsee_prioritized", &dseePrioInt) && dseePrioInt != 0) {
++        return true;
++    }
++    return false;
++}
++
+ }  // namespace
+ 
+ bool sonyDolbyEnabled(AudioPolicyClientInterface* client) {
+@@ -95,11 +113,7 @@ bool sonyDseeHxEnabled(AudioPolicyClientInterface* client) {
+ }
+ 
+ static bool sonyDseePrioritizedInternal(AudioPolicyClientInterface* client) {
+-    int prioritized = 0;
+-    if (!sonyGetHalInt(client, "is_dsee_prioritized", &prioritized)) {
+-        return false;
+-    }
+-    return prioritized != 0;
++    return sonySonyEffectWinsOverDolby(client);
+ }
+ 
+ bool sonyDseePrioritized(AudioPolicyClientInterface* client) {
+@@ -107,15 +121,27 @@ bool sonyDseePrioritized(AudioPolicyClientInterface* client) {
+ }
+ 
+ bool sonyUsesDseeRouting(AudioPolicyClientInterface* client) {
+-    // Global priority: Dolby > 360RA > DSEE. DSEE routes direct only when Dolby is off.
+     if (sonyUses360RaEffectRouting(client)) {
+         return false;
+     }
+-    return sonyDseeHxEnabled(client) && !sonyDolbyEnabled(client);
++    if (!sonyDseeHxEnabled(client)) {
++        return false;
++    }
++    if (!sonyDolbyEnabled(client)) {
++        return true;
++    }
++  // Dolby + DSEE: same arbitration as Dolby + 360 — prioritized app routes DSEE (direct).
++    return sonySonyEffectWinsOverDolby(client);
+ }
+ 
+ bool sonyUsesDolbyRouting(AudioPolicyClientInterface* client) {
+-    return sonyDolbyEnabled(client);
++    if (!sonyDolbyEnabled(client)) {
++        return false;
++    }
++    if (sonyDseeHxEnabled(client) && sonySonyEffectWinsOverDolby(client)) {
++        return false;
++    }
++    return true;
+ }
+ 
+ void sonyDolbyAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream_type_t stream,
+@@ -126,7 +152,7 @@ void sonyDolbyAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+ 
+     const bool dolbyOn = sonyDolbyEnabled(client);
+     const bool dseeOn = sonyDseeHxEnabled(client);
+-    const bool dseePrio = sonyDseePrioritizedInternal(client);
++    const bool sonyWins = sonySonyEffectWinsOverDolby(client);
+     const bool useDseeRouting = sonyUsesDseeRouting(client);
+     const bool useDolbyRouting = sonyUsesDolbyRouting(client);
+     const bool use360RaRouting = sonyUses360RaEffectRouting(client);
+@@ -138,12 +164,12 @@ void sonyDolbyAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+ 
+     const audio_output_flags_t before = *flags;
+     if (useDolbyRouting || use360RaRouting) {
+-        // Dolby / 360RA: deep-buffer mixer path (DAP / global effects).
++        // Dolby / 360 upmix: deep-buffer mixer (DAP / global upmix effects).
+         *flags = static_cast<audio_output_flags_t>(
+                 *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
+                            AUDIO_OUTPUT_FLAG_HW_AV_SYNC));
+     } else if (useDseeRouting) {
+-        // DSEE only when Dolby off: direct_pcm path.
++        // DSEE: direct_pcm when Sony effect wins (or Dolby off).
+         *flags = static_cast<audio_output_flags_t>(
+                 (*flags & ~(AUDIO_OUTPUT_FLAG_DEEP_BUFFER |
+                             AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
+@@ -151,8 +177,8 @@ void sonyDolbyAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+                 AUDIO_OUTPUT_FLAG_DIRECT);
+     }
+ 
+-    ALOGI("%s() dolby=%d dsee=%d dsee_prio=%d dsee_route=%d dolby_route=%d 360ra_route=%d flags 0x%x -> 0x%x",
+-          __func__, dolbyOn ? 1 : 0, dseeOn ? 1 : 0, dseePrio ? 1 : 0,
++    ALOGI("%s() dolby=%d dsee=%d sony_wins=%d dsee_route=%d dolby_route=%d 360ra_route=%d flags 0x%x -> 0x%x",
++          __func__, dolbyOn ? 1 : 0, dseeOn ? 1 : 0, sonyWins ? 1 : 0,
+           useDseeRouting ? 1 : 0, useDolbyRouting ? 1 : 0, use360RaRouting ? 1 : 0,
+           before, *flags);
+ }
+@@ -166,9 +192,16 @@ void sonyNotifyPlayingPkgUid(AudioPolicyClientInterface* client, audio_io_handle
+     if (client == nullptr) {
+         return;
+     }
++    (void)io;
++    const std::string package = sonyPackageNameForUid(uid);
+     AudioParameter param;
+     param.addInt(String8("playing_pkg_uid"), static_cast<int>(uid));
+-    client->setParameters(io, param.toString());
++    if (!package.empty()) {
++        param.add(String8("playing_pkg_name"), String8(package.c_str()));
++    }
++    ALOGI("%s: uid=%u pkg=%s", __func__, uid,
++          package.empty() ? "(unknown)" : package.c_str());
++    client->setParameters(AUDIO_IO_HANDLE_NONE, param.toString());
+ }
+ 
+ bool sonyMusicOutputMatchesRouting(AudioPolicyClientInterface* client,
+@@ -189,7 +222,6 @@ bool sonyMusicOutputMatchesRouting(AudioPolicyClientInterface* client,
+         return onDeepBuffer || onPrimary;
+     }
+     if (useDseeRouting) {
+-        // DSEE must not go through primary/deep-buffer mixer (DAP path).
+         const bool onPrimary = (outputFlags & AUDIO_OUTPUT_FLAG_PRIMARY) != 0;
+         if (onPrimary || onDeepBuffer) {
+             return false;
+diff --git a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
+index f22b56a6c5..5244627b87 100644
+--- a/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
++++ b/services/audiopolicy/managerdefault/SonyDolbyAudioPolicy.h
+@@ -1,6 +1,8 @@
+ /*
+- * Sony Dolby routing: block offload/direct when DAP on; keep deep-buffer like stock.
+- * Global priority: Dolby > 360RA > DSEE (DSEE direct only when Dolby off).
++ * Sony Dolby / DSEE routing for STREAM_MUSIC.
++ * 360 Upmix and DSEE are peer UI toggles (mutually exclusive). Arbitration with Dolby
++ * is identical: effect-priority app lets Sony effect win; excluded app lets Dolby win.
++ * DSEE wins → DIRECT pcm; Dolby / 360 upmix → deep-buffer mixer (+ skipEffect in flinger).
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ #pragma once

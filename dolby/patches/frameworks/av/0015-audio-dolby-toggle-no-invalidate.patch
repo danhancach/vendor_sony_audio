@@ -1,0 +1,62 @@
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+index fcb165ec45..a1b2c3d4e5 100644
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -1773,18 +1773,8 @@ bool sonyNeedsFullMusicInvalidate(const char* keyValuePairs) {
+     if (keyValuePairs == nullptr) {
+         return false;
+     }
+-    if (strstr(keyValuePairs, "dsee_hx_state") != nullptr) {
+-        // PAL may apply DSEE on an existing dolby/deep_buffer stream when toggled.
+-        return true;
+-    }
+-    return strstr(keyValuePairs, "dle_ds_state=0") != nullptr
+-            || strstr(keyValuePairs, "dle_ds_state=false") != nullptr
+-            || strstr(keyValuePairs, "dolby_dap_enable=0") != nullptr
+-            || strstr(keyValuePairs, "dolby_enable=0") != nullptr
+-            || strstr(keyValuePairs, "dle_ds_state=1") != nullptr
+-            || strstr(keyValuePairs, "dle_ds_state=true") != nullptr
+-            || strstr(keyValuePairs, "dolby_dap_enable=1") != nullptr
+-            || strstr(keyValuePairs, "dolby_enable=1") != nullptr;
++    // Stock: invalidate when DSEE routing (DIRECT vs mixer) may change — not on Dolby ON/OFF.
++    return strstr(keyValuePairs, "dsee_hx_state") != nullptr;
+ }
+ 
+ bool sonyShouldScheduleMusicInvalidate(const char* keyValuePairs) {
+@@ -1792,9 +1782,6 @@ bool sonyShouldScheduleMusicInvalidate(const char* keyValuePairs) {
+         return false;
+     }
+     return strstr(keyValuePairs, "dsee_hx_state") != nullptr
+-            || strstr(keyValuePairs, "dle_ds_state") != nullptr
+-            || strstr(keyValuePairs, "dolby_dap_enable") != nullptr
+-            || strstr(keyValuePairs, "dolby_enable") != nullptr
+             || strstr(keyValuePairs, "is_dsee_prioritized") != nullptr;
+ }
+ 
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index a5903fa826..16387a3539 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -684,14 +684,16 @@ void EffectDapController::finishRoutingUpdate_l(bool dolbyOn) {
+         mEffectiveRoutingInitialized = true;
+         return;
+     }
+-    if (mEffectiveDolbyRoute == dolbyMixerRoute && mEffectiveDseeRoute == dseeRoute) {
++    if (mEffectiveDseeRoute != dseeRoute) {
++        ALOGI("%s() dsee route changed %d->%d (dolby %d->%d), invalidate music",
++              __func__, mEffectiveDseeRoute ? 1 : 0, dseeRoute ? 1 : 0,
++              mEffectiveDolbyRoute ? 1 : 0, dolbyMixerRoute ? 1 : 0);
++        mEffectiveDseeRoute = dseeRoute;
++        mEffectiveDolbyRoute = dolbyMixerRoute;
++        mInvalidateMusicAfterUnlock = true;
+         return;
+     }
+-    ALOGI("%s() routing changed dolby %d->%d dsee %d->%d, invalidate music",
+-          __func__, mEffectiveDolbyRoute ? 1 : 0, dolbyMixerRoute ? 1 : 0,
+-          mEffectiveDseeRoute ? 1 : 0, dseeRoute ? 1 : 0);
++    // Dolby mixer on/off stays on deep_buffer — stock does not invalidate for that alone.
+     mEffectiveDolbyRoute = dolbyMixerRoute;
+-    mEffectiveDseeRoute = dseeRoute;
+-    mInvalidateMusicAfterUnlock = true;
+ }
+ 

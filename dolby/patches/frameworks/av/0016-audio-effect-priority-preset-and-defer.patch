@@ -1,0 +1,377 @@
+diff --git a/services/audioflinger/Android.bp b/services/audioflinger/Android.bp
+index 8e63fb6206..8008e4f1c2 100644
+--- a/services/audioflinger/Android.bp
++++ b/services/audioflinger/Android.bp
+@@ -206,6 +206,7 @@ cc_library {
+         "DeviceEffectManager.cpp",
+         "EffectDapController.cpp",
+         "EffectDapDmsClient.cpp",
++        "SonyEffectPriorityApps.cpp",
+         "SonyRoutingInvalidate.cpp",
+         "Effects.cpp",
+         "MelReporter.cpp",
+diff --git a/services/audioflinger/AudioFlinger.cpp b/services/audioflinger/AudioFlinger.cpp
+index 3cc27df5c3..c41db0fc40 100644
+--- a/services/audioflinger/AudioFlinger.cpp
++++ b/services/audioflinger/AudioFlinger.cpp
+@@ -27,6 +27,7 @@
+ #include "AudioFlinger.h"
+ #include "EffectDapController.h"
+ #include "SonyRoutingInvalidate.h"
++#include "SonyEffectPriorityApps.h"
+ 
+ #include <afutils/FallibleLockGuard.h>
+ #include <afutils/NBAIO_Tee.h>
+@@ -2008,6 +2009,31 @@ status_t AudioFlinger::setParameters(audio_io_handle_t ioHandle, const String8&
+                 ctrl->onUpmixPlayingPkg(uid, pkgName.c_str());
+             }
+         }
++        if (strstr(filteredKeyValuePairs.c_str(), "somc-prioritized-apps") != nullptr) {
++            AudioParameter somcParam = AudioParameter(filteredKeyValuePairs);
++            String8 prioritized;
++            if (somcParam.get(String8("somc-prioritized-apps"), prioritized) == NO_ERROR) {
++                if (EffectDapController* ctrl = EffectDapController::instance()) {
++                    ctrl->onSomcPrioritizedApps(prioritized.c_str());
++                }
++            }
++        }
++        if (strstr(filteredKeyValuePairs.c_str(), "somc-excluded-apps") != nullptr) {
++            AudioParameter somcParam = AudioParameter(filteredKeyValuePairs);
++            String8 excluded;
++            if (somcParam.get(String8("somc-excluded-apps"), excluded) == NO_ERROR) {
++                if (EffectDapController* ctrl = EffectDapController::instance()) {
++                    ctrl->onSomcExcludedApps(excluded.c_str());
++                }
++            }
++        }
++        if (strstr(filteredKeyValuePairs.c_str(), "playing_pkg_name") != nullptr ||
++                strstr(filteredKeyValuePairs.c_str(), "playing_pkg_uid") != nullptr) {
++            ALOGI("%s: playing pkg change, schedule music invalidate", __func__);
++            scheduleSonyMusicRoutingInvalidate(
++                    this, false,
++                    property_get_int32("vendor.audio.invalidate_sleep_before", 100000));
++        }
+         if (sonyRoutingChanged) {
+             sonyApplySonyRoutingHalState(filteredKeyValuePairs.c_str());
+             if (sonyShouldScheduleMusicInvalidate(filteredKeyValuePairs.c_str())) {
+@@ -2083,7 +2109,7 @@ String8 AudioFlinger::getParameters(audio_io_handle_t ioHandle, const String8& k
+             mHardwareStatus = AUDIO_HW_IDLE;
+             if (result == OK) out_s8 += s;
+         }
+-        return out_s8;
++        return sonySupplementEffectPriorityGetParameters(keys, out_s8);
+     }
+ 
+     IAfThreadBase* thread = checkPlaybackThread_l(ioHandle);
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index 16387a3539..8b3f3c906a 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -341,27 +341,29 @@ void EffectDapController::onUpmixPlayingPkg(uid_t uid, const char* packageName)
+ }
+ 
+ void EffectDapController::onSomcPrioritizedApps(const char* prioritizedApps) {
+-    Mutex::Autolock _l(mLock);
+-    mPrioritizedApps = parseSomcPkgList(prioritizedApps);
+-    ALOGI("%s: prioritized=%zu playing_pkg=%s", __func__, mPrioritizedApps.size(),
+-          mPlayingPkgName.empty() ? "(none)" : mPlayingPkgName.c_str());
+-    mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
+-    updateEffectPriority_l();
+-    if (mAudioFlinger != nullptr) {
+-        mAudioFlinger->invalidateMusicTracksOnAllPlaybackThreads();
++    {
++        Mutex::Autolock _l(mLock);
++        mPrioritizedApps = parseSomcPkgList(prioritizedApps);
++        ALOGI("%s: prioritized=%zu playing_pkg=%s", __func__, mPrioritizedApps.size(),
++              mPlayingPkgName.empty() ? "(none)" : mPlayingPkgName.c_str());
++        mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
++        updateEffectPriority_l();
++        mInvalidateMusicAfterUnlock = true;
+     }
++    runAfterRoutingUpdate();
+ }
+ 
+ void EffectDapController::onSomcExcludedApps(const char* excludedApps) {
+-    Mutex::Autolock _l(mLock);
+-    mExcludedApps = parseSomcPkgList(excludedApps);
+-    ALOGI("%s: excluded=%zu playing_pkg=%s", __func__, mExcludedApps.size(),
+-          mPlayingPkgName.empty() ? "(none)" : mPlayingPkgName.c_str());
+-    mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
+-    updateEffectPriority_l();
+-    if (mAudioFlinger != nullptr) {
+-        mAudioFlinger->invalidateMusicTracksOnAllPlaybackThreads();
++    {
++        Mutex::Autolock _l(mLock);
++        mExcludedApps = parseSomcPkgList(excludedApps);
++        ALOGI("%s: excluded=%zu playing_pkg=%s", __func__, mExcludedApps.size(),
++              mPlayingPkgName.empty() ? "(none)" : mPlayingPkgName.c_str());
++        mUpmixSupportedPkg = queryUpmixSupportedPkg_l();
++        updateEffectPriority_l();
++        mInvalidateMusicAfterUnlock = true;
+     }
++    runAfterRoutingUpdate();
+ }
+ 
+ void EffectDapController::onSomcAppLists(const char* prioritizedApps, const char* excludedApps) {
+diff --git a/services/audioflinger/EffectDapController.h b/services/audioflinger/EffectDapController.h
+index 32452c5269..642f103369 100644
+--- a/services/audioflinger/EffectDapController.h
++++ b/services/audioflinger/EffectDapController.h
+@@ -8,6 +8,7 @@
+ 
+ #include <atomic>
+ #include <memory>
++#include <string>
+ #include <vector>
+ 
+ #include "IAfEffect.h"
+@@ -39,6 +40,9 @@ public:
+     int upmixHeadphoneMode() const;
+     void on360RaContents(bool active);
+     void onUpmixPlayingPkg(uid_t uid, const char* packageName);
++    void onSomcAppLists(const char* prioritizedApps, const char* excludedApps);
++    void onSomcPrioritizedApps(const char* prioritizedApps);
++    void onSomcExcludedApps(const char* excludedApps);
+     bool requestPregainPrep();
+     sp<IAfEffectModule> globalDapEffect();
+     void preparePregainForMusicListener(const sp<IAfPlaybackThread>& mlThread);
+@@ -59,6 +63,7 @@ private:
+     static bool isUpmixEffect(const sp<IAfEffectBase>& effect);
+     void updateEffectPriority_l();
+     bool queryUpmixSupportedPkg_l();
++    bool isPlayingPkgPrioritized_l() const;
+     status_t setSkipEffectProcess_l(const sp<IAfEffectModule>& effect, bool skip);
+     status_t setBypass_l(bool bypass);
+     void applyBypassState_l(bool dolbyOn);
+@@ -88,6 +93,9 @@ private:
+     bool m360raContents = false;
+     bool mUpmixSupportedPkg = false;
+     uid_t mPlayingPkgUid = static_cast<uid_t>(-1);
++    std::string mPlayingPkgName;
++    std::vector<std::string> mPrioritizedApps;
++    std::vector<std::string> mExcludedApps;
+     wp<IAfPlaybackThread> mDapPlaybackThread;
+     wp<IAfPlaybackThread> mPendingMlVolumeResync;
+     wp<IAfPlaybackThread> mPendingMlPregPrep;
+diff --git a/services/audioflinger/SonyEffectPriorityApps.cpp b/services/audioflinger/SonyEffectPriorityApps.cpp
+new file mode 100644
+index 0000000000..81b6790b11
+--- /dev/null
++++ b/services/audioflinger/SonyEffectPriorityApps.cpp
+@@ -0,0 +1,123 @@
++/*
++ * Supplement audio_playback_effect_supported_apps_preset when Sony HAL returns empty.
++ * SoundEnhancement AppsManager.getPresetAppList() rejects lists whose size != 33.
++ */
++#define LOG_TAG "SonyEffectPriority"
++
++#include "SonyEffectPriorityApps.h"
++
++#include <log/log.h>
++
++#include <cstring>
++#include <fstream>
++#include <mutex>
++#include <string>
++#include <vector>
++
++#include <media/AudioParameter.h>
++
++using android::AudioParameter;
++using android::NO_ERROR;
++using android::String8;
++
++constexpr const char* kPresetKey = "audio_playback_effect_supported_apps_preset";
++constexpr size_t kExpectedPresetAppCount = 33;
++constexpr const char* kWhiteListXmlPath = "/vendor/etc/audio_app_white_list.xml";
++constexpr const char* kPackageOpenTag = "<package-name>";
++constexpr const char* kPackageCloseTag = "</package-name>";
++
++std::mutex gPresetMutex;
++String8 gCachedPreset;
++
++size_t countCommaSeparated(const String8& value) {
++    if (value.size() == 0) {
++        return 0;
++    }
++    size_t count = 1;
++    for (size_t i = 0; i < value.size(); ++i) {
++        if (value[i] == ',') {
++            ++count;
++        }
++    }
++    return count;
++}
++
++bool presetValueUsable(const String8& value) {
++    return countCommaSeparated(value) == kExpectedPresetAppCount;
++}
++
++std::vector<std::string> parsePackageNamesFromXml(const std::string& content) {
++    std::vector<std::string> packages;
++    size_t pos = 0;
++    while (packages.size() < kExpectedPresetAppCount) {
++        const size_t start = content.find(kPackageOpenTag, pos);
++        if (start == std::string::npos) {
++            break;
++        }
++        const size_t nameStart = start + strlen(kPackageOpenTag);
++        const size_t end = content.find(kPackageCloseTag, nameStart);
++        if (end == std::string::npos) {
++            break;
++        }
++        packages.emplace_back(content.substr(nameStart, end - nameStart));
++        pos = end + strlen(kPackageCloseTag);
++    }
++    return packages;
++}
++
++String8 joinPackages(const std::vector<std::string>& packages) {
++    String8 joined;
++    for (size_t i = 0; i < packages.size(); ++i) {
++        if (i > 0) {
++            joined += ",";
++        }
++        joined += packages[i].c_str();
++    }
++    return joined;
++}
++
++String8 loadPresetFromXml() {
++    std::lock_guard<std::mutex> lock(gPresetMutex);
++    if (gCachedPreset.size() > 0) {
++        return gCachedPreset;
++    }
++
++    std::ifstream in(kWhiteListXmlPath);
++    if (!in) {
++        ALOGW("%s: cannot read %s", __func__, kWhiteListXmlPath);
++        return {};
++    }
++    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
++
++    const std::vector<std::string> packages = parsePackageNamesFromXml(content);
++    if (packages.size() != kExpectedPresetAppCount) {
++        ALOGW("%s: %zu packages in %s, expected %zu", __func__, packages.size(),
++              kWhiteListXmlPath, kExpectedPresetAppCount);
++        return {};
++    }
++
++    gCachedPreset = joinPackages(packages);
++    ALOGI("%s: loaded %zu preset apps from %s", __func__, packages.size(), kWhiteListXmlPath);
++    return gCachedPreset;
++}
++
++android::String8 sonySupplementEffectPriorityGetParameters(const android::String8& keys,
++                                                           const android::String8& halOut) {
++    if (keys != kPresetKey) {
++        return halOut;
++    }
++
++    AudioParameter param(halOut);
++    String8 value;
++    if (param.get(String8(kPresetKey), value) == NO_ERROR && presetValueUsable(value)) {
++        return halOut;
++    }
++
++    const String8 preset = loadPresetFromXml();
++    if (preset.size() == 0) {
++        return halOut;
++    }
++
++    ALOGI("%s: supplement HAL preset for SoundEnhancement UI", __func__);
++    return String8(kPresetKey) + "=" + preset;
++}
+diff --git a/services/audioflinger/SonyEffectPriorityApps.h b/services/audioflinger/SonyEffectPriorityApps.h
+new file mode 100644
+index 0000000000..8854343547
+--- /dev/null
++++ b/services/audioflinger/SonyEffectPriorityApps.h
+@@ -0,0 +1,12 @@
++/*
++ * Sony Effect priority preset list (SoundEnhancement whitelist).
++ * Stock APK/HAL expect exactly 33 preset package names.
++ */
++#pragma once
++
++#include <utils/String8.h>
++
++// If HAL returns empty/invalid preset for audio_playback_effect_supported_apps_preset,
++// fill from /vendor/etc/audio_app_white_list.xml (first 33 entries).
++android::String8 sonySupplementEffectPriorityGetParameters(const android::String8& keys,
++                                                           const android::String8& halOut);
+diff --git a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+index e7ada3e5c9..158f830715 100644
+--- a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
++++ b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include <media/AudioParameter.h>
+ #include <cutils/properties.h>
++#include <binder/PermissionController.h>
+ #include <fstream>
+ #include <limits>
+ #include <string>
+@@ -102,17 +103,26 @@ bool sonyIs360RaChannelMask(audio_channel_mask_t mask) {
+ }
+ 
+ std::string sonyPackageNameForUid(uid_t uid) {
+-    std::ifstream packages("/data/system/packages.list");
+-    if (!packages.is_open()) {
++    if (uid == 0 || uid == static_cast<uid_t>(-1)) {
++        return {};
++    }
++    Vector<String16> packages;
++    PermissionController permissionController;
++    permissionController.getPackagesForUid(uid, packages);
++    if (!packages.isEmpty()) {
++        return String8(packages[0]).c_str();
++    }
++    std::ifstream packagesFile("/data/system/packages.list");
++    if (!packagesFile.is_open()) {
+         return {};
+     }
+     std::string package;
+     uid_t pkgUid = static_cast<uid_t>(-1);
+-    while (packages >> package >> pkgUid) {
++    while (packagesFile >> package >> pkgUid) {
+         if (pkgUid == uid) {
+             return package;
+         }
+-        packages.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
++        packagesFile.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+     }
+     return {};
+ }
+@@ -243,10 +253,10 @@ void sonyUpdate360RaContentsForClient(AudioPolicyClientInterface* client,
+ }
+ 
+ void sonyNotifyUpmixPlayingPkg(AudioPolicyClientInterface* client, audio_io_handle_t io, uid_t uid) {
+-    if (client == nullptr || !sony360RaEnabled()) {
++    if (client == nullptr) {
+         return;
+     }
+-  (void)io;
++    (void)io;
+     const std::string package = sonyPackageNameForUid(uid);
+     AudioParameter param;
+     if (!package.empty()) {
+diff --git a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h
+index b3c7c690af..69eb544dae 100644
+--- a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h
++++ b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.h
+@@ -4,6 +4,7 @@
+  */
+ #pragma once
+ 
++#include <string>
+ #include <system/audio.h>
+ 
+ namespace android {
+@@ -27,5 +28,6 @@ void sonyUpdate360RaContentsForClient(AudioPolicyClientInterface* client,
+                                       audio_stream_type_t stream,
+                                       audio_channel_mask_t channelMask, bool starting);
+ void sonyNotifyUpmixPlayingPkg(AudioPolicyClientInterface* client, audio_io_handle_t io, uid_t uid);
++std::string sonyPackageNameForUid(uid_t uid);
+ 
+ }  // namespace android

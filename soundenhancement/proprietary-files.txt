@@ -2,6 +2,8 @@
 # Regenerate: ./extract-from-stock.sh
 
 system_ext/priv-app/SoundEnhancement/SoundEnhancement.apk
+system_ext/priv-app/ExtendedAudioService/ExtendedAudioService.apk
 system_ext/etc/permissions/com.sonyericsson.soundenhancement.xml
+system_ext/etc/permissions/com.sonymobile.audioutil.xml
 system_ext/etc/default-permissions/exceptions-soundenhancement.xml
 system_ext/etc/sysconfig/config_com.sonyericsson.soundenhancement_preferences.xml
