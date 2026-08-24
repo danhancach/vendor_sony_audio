@@ -1,0 +1,2 @@
+# Sony360RAudioPolicy + libtsrupmix read vendor.360ra.effect (vendor_restricted_prop).
+get_prop(audioserver, vendor_360ra_prop)

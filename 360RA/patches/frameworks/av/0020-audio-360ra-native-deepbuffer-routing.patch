@@ -1,0 +1,48 @@
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -8884,6 +8884,10 @@ bool AudioPolicyManager::shouldBeSpatialized(const audio_attributes_t *attr,
+                                              const audio_output_flags_t flags,
+                                              audio_session_t session,
+                                              const sp<PreferredMixerAttributesInfo>& mixConfInfo) {
++    // Native 360RA (13ch mhm1/mha1): stock uses deep-buffer mixer, not AOSP spatializer thread.
++    if (config != nullptr && sony360RaEnabled() && sonyIs360RaChannelMask(config->channel_mask)) {
++        return false;
++    }
+     if (mSpatializerOutput != nullptr && canBeSpatializedInt(attr, config, devices)
+             && ((flags & (AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD | AUDIO_OUTPUT_FLAG_DIRECT)) == 0)
+             && checkHapticCompatibilityOnSpatializerOutput(config, session)
+--- a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
++++ b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+@@ -83,7 +83,7 @@ void sony360RaForceMixerRoutingFlags(audio_output_flags_t* flags) {
+     const audio_output_flags_t before = *flags;
+     *flags = static_cast<audio_output_flags_t>(
+             *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
+-                       AUDIO_OUTPUT_FLAG_HW_AV_SYNC));
++                       AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_SPATIALIZER));
+     if ((before & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0 &&
+             (before & AUDIO_OUTPUT_FLAG_FAST) == 0) {
+         *flags = static_cast<audio_output_flags_t>(*flags | AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
+@@ -190,6 +190,14 @@ void sony360RaAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+     if (flags == nullptr || config == nullptr || stream != AUDIO_STREAM_MUSIC) {
+         return;
+     }
++    // Native 360RA (mhm1/mha1, 13ch): stock routes via deep-buffer mixer, not AOSP spatializer.
++    if (sony360RaEnabled() && sonyIs360RaChannelMask(config->channel_mask)) {
++        const audio_output_flags_t before = *flags;
++        sony360RaForceMixerRoutingFlags(flags);
++        ALOGI("%s: native 360RA mask 0x%x, flags 0x%x -> 0x%x", __func__,
++              config->channel_mask, before, *flags);
++        return;
++    }
+     // Stereo upmix runs through global session-0 effects on the deep-buffer mixer path.
+     if (sony360RaUpmixModeActive(client) && sonyChannelCount(config->channel_mask) <= 2) {
+         const audio_output_flags_t before = *flags;
+@@ -203,7 +211,7 @@ void sony360RaAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+     const audio_output_flags_t before = *flags;
+     *flags = static_cast<audio_output_flags_t>(
+             *flags & ~(AUDIO_OUTPUT_FLAG_DIRECT | AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD |
+-                       AUDIO_OUTPUT_FLAG_HW_AV_SYNC));
++                       AUDIO_OUTPUT_FLAG_HW_AV_SYNC | AUDIO_OUTPUT_FLAG_SPATIALIZER));
+     if ((before & AUDIO_OUTPUT_FLAG_DEEP_BUFFER) == 0) {
+         *flags = static_cast<audio_output_flags_t>(*flags | AUDIO_OUTPUT_FLAG_DEEP_BUFFER);
+     }

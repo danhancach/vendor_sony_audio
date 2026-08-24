@@ -27,3 +27,4 @@ apply_one() {
 for n in 0001; do
     apply_one "$HERE/frameworks/av/${n}"*.patch
 done
+apply_one "$HERE/frameworks/av/0020-audio-360ra-native-deepbuffer-routing.patch"

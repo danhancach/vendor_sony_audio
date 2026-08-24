@@ -24,6 +24,10 @@ PRODUCT_COPY_FILES += \
     vendor/sony/audio/360RA/proprietary/vendor/lib64/libcodec2_soft_common.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libcodec2_soft_common.so \
     vendor/sony/audio/360RA/proprietary/vendor/lib64/libsfplugin_ccodec_utils.so:$(TARGET_COPY_OUT_VENDOR)/lib64/libsfplugin_ccodec_utils.so
 
+# threesixty-ra C2 HAL loads codec2.vendor.ext.policy (not *-arm64); missing → SIGSYS.
+PRODUCT_COPY_FILES += \
+    vendor/sony/sm8550-common/proprietary/vendor/etc/seccomp_policy/codec2.vendor.ext-arm64.policy:$(TARGET_COPY_OUT_VENDOR)/etc/seccomp_policy/codec2.vendor.ext.policy
+
 # Stock /data/vendor/360ra seed (upmix bins, tunedapp_list, headphone .ba, …).
 360RA_DATA_SRC := vendor/sony/audio/360RA/configs/360ra-data
 $(foreach f,$(wildcard $(360RA_DATA_SRC)/*),$(eval PRODUCT_COPY_FILES += $(f):$(TARGET_COPY_OUT_VENDOR)/etc/360ra/$(notdir $(f))))
