@@ -17,5 +17,8 @@ vendor/sony/audio/DSEE/patches/apply.sh
 | Patch | What |
 |-------|------|
 | `0003-mediametrics-dsee-codec-client.patch` | `SonyDseeCodecClient` — notify PAL of active audio decoder (uid, mime, bitrate) |
+| `0021-audio-dsee-direct-pcm-open.patch` | Open `direct_pcm` for DSEE when client requests PCM_FLOAT; skip 360RA DIRECT strip when DSEE routing active |
 
-Mirror: `.patchs/frameworks/av/0003-mediametrics-dsee-codec-client.patch`
+Mirror: `.patchs/frameworks/av/0003-mediametrics-dsee-codec-client.patch`, `.patchs/frameworks/av/0021-audio-dsee-direct-pcm-open.patch`
+
+Routing stack (`dsee_hx_state`, `is_dsee_prioritized`): apply `dolby/patches/apply.sh` first (includes `0021`).

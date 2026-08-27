@@ -25,3 +25,4 @@ apply_one() {
 }
 
 apply_one "$HERE/frameworks/av/0003-mediametrics-dsee-codec-client.patch"
+apply_one "$HERE/frameworks/av/0021-audio-dsee-direct-pcm-open.patch"

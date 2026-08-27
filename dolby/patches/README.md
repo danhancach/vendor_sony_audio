@@ -30,8 +30,9 @@ vendor/sony/audio/dolby/patches/apply.sh
 | `0015-audio-dolby-toggle-no-invalidate.patch` | Invalidate music only on `dsee_hx_state` route change, not Dolby toggle |
 | `0016-audio-effect-priority-preset-and-defer.patch` | HAL preset XML fallback (`SonyEffectPriorityApps`), defer invalidate on somc sync (fix add-app deadlock) |
 | `0020-audio-360ra-native-deepbuffer-routing.patch` | Route native 360RA 13ch via deep-buffer mixer (stock), block AOSP spatializer (`libtsrspatializer` stereo fail) |
+| `0021-audio-dsee-direct-pcm-open.patch` | Open `direct_pcm` for DSEE when client requests PCM_FLOAT; skip 360RA DIRECT strip when DSEE routing active |
 
-Alternative single-shot after `0013`: `0018-audio-effect-priority-verified.patch` (do not combine with `0014`–`0016`). Apply `0020` after either stack. Do **not** apply deprecated `0019` (spatializer routing caused silent playback).
+Alternative single-shot after `0013`: `0018-audio-effect-priority-verified.patch` (do not combine with `0014`–`0016`). Apply `0020`–`0021` after either stack. Do **not** apply deprecated `0019` (spatializer routing caused silent playback).
 
 Effect priority whitelist (33 apps): `soundenhancement/patches/apply.sh`.
 

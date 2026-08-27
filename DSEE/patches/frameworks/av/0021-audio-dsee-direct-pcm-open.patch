@@ -1,0 +1,146 @@
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index 466f63750f..9d2ba331d4 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -1761,15 +1761,57 @@ status_t AudioPolicyManager::openDirectOutput(audio_stream_type_t stream,
+     // Do not allow offloading if one non offloadable effect is enabled or MasterMono is enabled.
+     // This prevents creating an offloaded track and tearing it down immediately after start
+     // when audioflinger detects there is an active non offloadable effect.
++    audio_config_t openConfig = *config;
+     sp<IOProfile> profile;
+-    if (((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) ||
+-            !(mEffects.isNonOffloadableEffectEnabled(session) || mMasterMono)) {
+-        profile = getProfileForOutput(
+-                devices, config->sample_rate, config->format, config->channel_mask,
++
++    auto lookupDirectProfile = [&](audio_format_t fmt) -> sp<IOProfile> {
++        if ((flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) != 0 &&
++                (mEffects.isNonOffloadableEffectEnabled(session) || mMasterMono)) {
++            return nullptr;
++        }
++        return getProfileForOutput(
++                devices, openConfig.sample_rate, fmt, openConfig.channel_mask,
+                 flags, true /* directOnly */);
++    };
++
++    if (stream == AUDIO_STREAM_MUSIC && sonyUsesDseeRouting(mpClientInterface) &&
++            (flags & AUDIO_OUTPUT_FLAG_DIRECT) != 0 &&
++            (flags & AUDIO_OUTPUT_FLAG_COMPRESS_OFFLOAD) == 0) {
++        // direct_pcm profiles are integer PCM only (stock DSEE uses pcm32 DIRECT).
++        // Client may request PCM_FLOAT on deep_buffer; coerce before opening direct_pcm.
++        static const audio_format_t kDseeDirectFormats[] = {
++                AUDIO_FORMAT_PCM_32_BIT,
++                AUDIO_FORMAT_PCM_8_24_BIT,
++                AUDIO_FORMAT_PCM_16_BIT,
++        };
++        const audio_format_t requestedFormat = openConfig.format;
++        if (audio_is_linear_pcm(requestedFormat)) {
++            profile = lookupDirectProfile(requestedFormat);
++        }
++        if (profile == nullptr) {
++            for (audio_format_t fmt : kDseeDirectFormats) {
++                if (fmt == requestedFormat) {
++                    continue;
++                }
++                profile = lookupDirectProfile(fmt);
++                if (profile != nullptr) {
++                    ALOGI("%s DSEE direct_pcm format %#x -> %#x", __func__,
++                          requestedFormat, fmt);
++                    openConfig.format = fmt;
++                    break;
++                }
++            }
++        }
++    } else {
++        profile = lookupDirectProfile(openConfig.format);
+     }
+ 
+     if (profile == nullptr) {
++        if (stream == AUDIO_STREAM_MUSIC && sonyUsesDseeRouting(mpClientInterface)) {
++            ALOGW("%s DSEE routing: no direct_pcm profile sr=%u fmt=%#x ch=%#x flags=%#x",
++                  __func__, openConfig.sample_rate, openConfig.format, openConfig.channel_mask,
++                  flags);
++        }
+         return NAME_NOT_FOUND;
+     }
+ 
+@@ -1779,9 +1821,9 @@ status_t AudioPolicyManager::openDirectOutput(audio_stream_type_t stream,
+         if (!desc->isDuplicated() && (profile == desc->mProfile)) {
+             // reuse direct output if currently open by the same client
+             // and configured with same parameters
+-            if ((config->sample_rate == desc->getSamplingRate()) &&
+-                (config->format == desc->getFormat()) &&
+-                (config->channel_mask == desc->getChannelMask()) &&
++            if ((openConfig.sample_rate == desc->getSamplingRate()) &&
++                (openConfig.format == desc->getFormat()) &&
++                (openConfig.channel_mask == desc->getChannelMask()) &&
+                 (session == desc->mDirectClientSession)) {
+                 desc->mDirectOpenCount++;
+                 ALOGI("%s reusing direct output %d for session %d", __func__,
+@@ -1827,29 +1869,32 @@ status_t AudioPolicyManager::openDirectOutput(audio_stream_type_t stream,
+     releaseMsdOutputPatches(devices);
+ 
+     status_t status =
+-            outputDesc->open(config, nullptr /* mixerConfig */, devices, stream, &flags, output,
+-                             attributes);
++            outputDesc->open(&openConfig, nullptr /* mixerConfig */, devices, stream, &flags,
++                             output, attributes);
+ 
+     // only accept an output with the requested parameters, unless the format can be IEC61937
+     // encapsulated and opened by AudioFlinger as wrapped IEC61937.
+-    const bool ignoreRequestedParametersCheck = audio_is_iec61937_compatible(config->format)
++    const bool ignoreRequestedParametersCheck = audio_is_iec61937_compatible(openConfig.format)
+             && (flags & AUDIO_OUTPUT_FLAG_IEC958_NONAUDIO)
+             && audio_has_proportional_frames(outputDesc->getFormat());
+     if (status != NO_ERROR ||
+         (!ignoreRequestedParametersCheck &&
+-        ((config->sample_rate != 0 && config->sample_rate != outputDesc->getSamplingRate()) ||
+-         (config->format != AUDIO_FORMAT_DEFAULT && config->format != outputDesc->getFormat()) ||
+-         (config->channel_mask != 0 && config->channel_mask != outputDesc->getChannelMask())))) {
++        ((openConfig.sample_rate != 0 &&
++          openConfig.sample_rate != outputDesc->getSamplingRate()) ||
++         (openConfig.format != AUDIO_FORMAT_DEFAULT &&
++          openConfig.format != outputDesc->getFormat()) ||
++         (openConfig.channel_mask != 0 &&
++          openConfig.channel_mask != outputDesc->getChannelMask())))) {
+         ALOGV("%s failed opening direct output: output %d sample rate %d %d,"
+-                "format %d %d, channel mask %04x %04x", __func__, *output, config->sample_rate,
+-                outputDesc->getSamplingRate(), config->format, outputDesc->getFormat(),
+-                config->channel_mask, outputDesc->getChannelMask());
++                "format %d %d, channel mask %04x %04x", __func__, *output,
++                openConfig.sample_rate, outputDesc->getSamplingRate(), openConfig.format,
++                outputDesc->getFormat(), openConfig.channel_mask, outputDesc->getChannelMask());
+         if (*output != AUDIO_IO_HANDLE_NONE) {
+             outputDesc->close();
+         }
+         // fall back to mixer output if possible when the direct output could not be open
+-        if (audio_is_linear_pcm(config->format) &&
+-                config->sample_rate  <= SAMPLE_RATE_HZ_MAX) {
++        if (audio_is_linear_pcm(openConfig.format) &&
++                openConfig.sample_rate  <= SAMPLE_RATE_HZ_MAX) {
+             return NAME_NOT_FOUND;
+         }
+         *output = AUDIO_IO_HANDLE_NONE;
+diff --git a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+index 88051ab48e..1a995d9a83 100644
+--- a/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
++++ b/services/audiopolicy/managerdefault/Sony360RAudioPolicy.cpp
+@@ -14,6 +14,7 @@
+ #include <utils/Log.h>
+ 
+ #include "AudioPolicyInterface.h"
++#include "SonyDolbyAudioPolicy.h"
+ 
+ namespace android {
+ 
+@@ -190,6 +191,10 @@ void sony360RaAdjustOutputFlags(AudioPolicyClientInterface* client, audio_stream
+     if (flags == nullptr || config == nullptr || stream != AUDIO_STREAM_MUSIC) {
+         return;
+     }
++    // DSEE and 360 upmix are mutually exclusive; DSEE routing uses direct_pcm.
++    if (sonyUsesDseeRouting(client)) {
++        return;
++    }
+     // Native 360RA (mhm1/mha1, 13ch): stock routes via deep-buffer mixer, not AOSP spatializer.
+     if (sony360RaEnabled() && sonyIs360RaChannelMask(config->channel_mask)) {
+         const audio_output_flags_t before = *flags;
