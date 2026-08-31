@@ -1,0 +1,26 @@
+diff --git a/audio/audio_effects.xml b/audio/audio_effects.xml
+index 0c78aa5..860cb6d 100644
+--- a/audio/audio_effects.xml
++++ b/audio/audio_effects.xml
+@@ -190,9 +190,7 @@
+             -->
+         </stream>
+         <stream type="alarm">
+-            <!-- Disable volume listener
+-            <apply effect="alarm_helper"/>
+-            -->
++            <apply effect="dlb_alarm_listener"/>
+         </stream>
+         <stream type="voice_call">
+             <!-- Disable volume listener
+@@ -200,9 +198,7 @@
+             -->
+         </stream>
+         <stream type="notification">
+-            <!-- Disable volume listener
+-            <apply effect="notification_helper"/>
+-            -->
++            <apply effect="dlb_notification_listener"/>
+         </stream>
+     </postprocess>
+     <preprocess>

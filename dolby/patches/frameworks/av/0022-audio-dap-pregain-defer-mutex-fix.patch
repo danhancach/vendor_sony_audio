@@ -1,0 +1,26 @@
+diff --git a/services/audioflinger/Threads.cpp b/services/audioflinger/Threads.cpp
+index 02324fbbff..3d33163b07 100644
+--- a/services/audioflinger/Threads.cpp
++++ b/services/audioflinger/Threads.cpp
+@@ -4409,6 +4409,13 @@ NO_THREAD_SAFETY_ANALYSIS  // manual locking of AudioFlinger
+             }
+         } // mutex() scope ends
+ 
++        // DAP pregain restart must run after prepareTracks_l() releases mutex():
++        // prepareDapPregainForTrackThread() locks PlaybackThread::mutex(); calling it from
++        // inside prepareTracks_l() deadlocks (recursive ThreadBase_Mutex abort).
++        if (EffectDapController* ctrl = EffectDapController::instance(); ctrl != nullptr) {
++            ctrl->runPendingDapPregainOnMixThread(asIAfPlaybackThread());
++        }
++
+         if (mBytesRemaining == 0) {
+             mCurrentWriteLength = 0;
+             if (mMixerStatus == MIXER_TRACKS_READY) {
+@@ -6592,7 +6599,6 @@ PlaybackThread::mixer_state MixerThread::prepareTracks_l(
+         mixerStatus = MIXER_TRACKS_READY;
+     }
+     if (EffectDapController* ctrl = EffectDapController::instance(); ctrl != nullptr) {
+-        ctrl->runPendingDapPregainOnMixThread(asIAfPlaybackThread());
+         if (ctrl->consumePendingMlVolumeResync(asIAfPlaybackThread())) {
+             resyncActiveTrackEffectVolumes_l();
+         }

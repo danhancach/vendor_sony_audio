@@ -1,0 +1,57 @@
+diff --git a/services/audioflinger/EffectDapController.cpp b/services/audioflinger/EffectDapController.cpp
+index 8b3f3c906a..ecff647314 100644
+--- a/services/audioflinger/EffectDapController.cpp
++++ b/services/audioflinger/EffectDapController.cpp
+@@ -372,13 +372,26 @@ void EffectDapController::onSomcAppLists(const char* prioritizedApps, const char
+ }
+ 
+ bool EffectDapController::isMusicListenerEffect(const sp<IAfEffectBase>& effect) {
++    return isDlbVolumeListenerEffect(effect);
++}
++
++bool EffectDapController::isDlbVolumeListenerEffect(const sp<IAfEffectBase>& effect) {
+     if (effect == nullptr) {
+         return false;
+     }
+     static const effect_uuid_t kMusicListenerUuid = {
+         0x40f66c8b, 0x5aa5, 0x4345, 0x8919,
+         {0x53, 0xec, 0x43, 0x1a, 0xaa, 0x98}};
+-    return memcmp(&effect->desc().uuid, &kMusicListenerUuid, sizeof(effect_uuid_t)) == 0;
++    static const effect_uuid_t kAlarmListenerUuid = {
++        0x6aff229c, 0x30c6, 0x4cc8, 0x9957,
++        {0xdb, 0xfe, 0x5c, 0x1b, 0xd7, 0xf6}};
++    static const effect_uuid_t kNotificationListenerUuid = {
++        0x1f0091e3, 0x6ad8, 0x40fe, 0x9b09,
++        {0x59, 0x48, 0xf9, 0xa2, 0x6e, 0x7e}};
++    const effect_uuid_t& uuid = effect->desc().uuid;
++    return memcmp(&uuid, &kMusicListenerUuid, sizeof(effect_uuid_t)) == 0
++            || memcmp(&uuid, &kAlarmListenerUuid, sizeof(effect_uuid_t)) == 0
++            || memcmp(&uuid, &kNotificationListenerUuid, sizeof(effect_uuid_t)) == 0;
+ }
+ 
+ bool EffectDapController::requestPregainPrep() {
+diff --git a/services/audioflinger/EffectDapController.h b/services/audioflinger/EffectDapController.h
+index 642f103369..fec36e0f32 100644
+--- a/services/audioflinger/EffectDapController.h
++++ b/services/audioflinger/EffectDapController.h
+@@ -28,6 +28,7 @@ public:
+     static void destroy();
+ 
+     static bool isMusicListenerEffect(const sp<IAfEffectBase>& effect);
++    static bool isDlbVolumeListenerEffect(const sp<IAfEffectBase>& effect);
+ 
+     void effectCreated(const sp<IAfEffectModule>& effect, const sp<IAfThreadBase>& thread);
+     void effectReleased(const sp<IAfEffectModule>& effect);
+diff --git a/services/audioflinger/Threads.cpp b/services/audioflinger/Threads.cpp
+index 3d33163b07..c2c78fbb85 100644
+--- a/services/audioflinger/Threads.cpp
++++ b/services/audioflinger/Threads.cpp
+@@ -1711,7 +1711,7 @@ sp<IAfEffectHandle> ThreadBase::createEffect_l(
+                 EffectDapController::instance()->effectCreated(
+                         effect, sp<IAfThreadBase>::fromExisting(this));
+                 if (effectCreated &&
+-                        EffectDapController::isMusicListenerEffect(effect)) {
++                        EffectDapController::isDlbVolumeListenerEffect(effect)) {
+                     pregPrepNeeded = true;
+                     mlForPregPrep = asIAfPlaybackThread();
+                 }

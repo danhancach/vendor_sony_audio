@@ -29,3 +29,19 @@ for n in 0001 0002 0003 0004 0005 0010 0011 0012 0013 0014 0015 0016; do
 done
 apply_one "$HERE/frameworks/av/0020-audio-360ra-native-deepbuffer-routing.patch"
 apply_one "$HERE/frameworks/av/0021-audio-dsee-direct-pcm-open.patch"
+apply_one "$HERE/frameworks/av/0022-audio-dap-pregain-defer-mutex-fix.patch"
+apply_one "$HERE/frameworks/av/0023-audio-dap-pregain-sonification.patch"
+
+DT="$ROOT/device/sony/sm8550-common"
+if [[ -d "$DT" ]]; then
+    apply_dt() {
+        local patch="$1"
+        if git -C "$DT" apply --check --reverse "$patch" >/dev/null 2>&1; then
+            echo "already applied: $(basename "$patch") (device tree)"
+            return 0
+        fi
+        git -C "$DT" apply "$patch"
+        echo "applied: $(basename "$patch") (device tree)"
+    }
+    apply_dt "$HERE/device/sony/sm8550-common/audio_effects-alarm-notification-listeners.patch"
+fi

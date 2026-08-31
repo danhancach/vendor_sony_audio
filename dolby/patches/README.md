@@ -31,6 +31,16 @@ vendor/sony/audio/dolby/patches/apply.sh
 | `0016-audio-effect-priority-preset-and-defer.patch` | HAL preset XML fallback (`SonyEffectPriorityApps`), defer invalidate on somc sync (fix add-app deadlock) |
 | `0020-audio-360ra-native-deepbuffer-routing.patch` | Route native 360RA 13ch via deep-buffer mixer (stock), block AOSP spatializer (`libtsrspatializer` stereo fail) |
 | `0021-audio-dsee-direct-pcm-open.patch` | Open `direct_pcm` for DSEE when client requests PCM_FLOAT; skip 360RA DIRECT strip when DSEE routing active |
+| `0022-audio-dap-pregain-defer-mutex-fix.patch` | Defer DAP pregain restart until after `prepareTracks_l()` releases mutex (fix audioserver deadlock) |
+| `0023-audio-dap-pregain-sonification.patch` | Pregain prep on alarm/notification `DlbVolumeListener` attach (same path as music listener) |
+
+Device tree (`device/sony/sm8550-common`, applied by `apply.sh` when present):
+
+| Patch | What |
+|-------|------|
+| `device/sony/sm8550-common/audio_effects-alarm-notification-listeners.patch` | Apply `dlb_alarm_listener` / `dlb_notification_listener` on alarm/notification streams |
+
+Mirror: `.patchs/frameworks/av/0022-*.patch`, `0023-*.patch`; device commit `88a4f84` on `sm8550-common` `evox`.
 
 Alternative single-shot after `0013`: `0018-audio-effect-priority-verified.patch` (do not combine with `0014`–`0016`). Apply `0020`–`0021` after either stack. Do **not** apply deprecated `0019` (spatializer routing caused silent playback).
 
