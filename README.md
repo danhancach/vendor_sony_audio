@@ -5,10 +5,17 @@ Umbrella tree for stock Sony audio ports on AOSP 17:
 ```text
 vendor/sony/audio/
 ├── config.mk           # ROM entry — inherit from device.mk
+├── patches/            # Consolidated frameworks/av + device patches (apply here)
 ├── dolby/              # Dolby DAP + DMS (stock A15 port)
 ├── soundenhancement/   # Sound Enhancement UI (stock A15 priv-app)
 ├── 360RA/              # 360 Reality Audio (stock A15 port)
 └── DSEE/               # DSEE-HX params + frameworks/av codec notify patch
+```
+
+Apply Sony audio on `frameworks/av` after `repo sync`:
+
+```bash
+vendor/sony/audio/patches/apply.sh
 ```
 
 ## Integrate

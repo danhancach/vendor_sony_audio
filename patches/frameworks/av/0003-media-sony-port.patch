@@ -1,0 +1,159 @@
+diff --git a/media/audioserver/main_audioserver.cpp b/media/audioserver/main_audioserver.cpp
+index c94fa8e45a..b42b52e7ab 100644
+--- a/media/audioserver/main_audioserver.cpp
++++ b/media/audioserver/main_audioserver.cpp
+@@ -19,6 +19,7 @@
+ 
+ #include <algorithm>
+ 
++#include <dlfcn.h>
+ #include <fcntl.h>
+ #include <sys/prctl.h>
+ #include <sys/wait.h>
+@@ -47,6 +48,23 @@ using android::media::audio::common::AudioMMapPolicy;
+ using android::media::audio::common::AudioMMapPolicyInfo;
+ using android::media::audio::common::AudioMMapPolicyType;
+ 
++void load_audiohalvendorextn() {
++    void *autoHALVendorExtn = dlopen("libaudiohalvendorextn.so", RTLD_NODELETE | RTLD_NOW);
++    if (autoHALVendorExtn == nullptr) {
++        ALOGE("Failed to load library: libaudiohalvendorextn.so (%s)", dlerror());
++        return;
++    }
++
++    typedef void (*registerInterfaceFn)();
++    auto registerInterface = (registerInterfaceFn)dlsym(autoHALVendorExtn, "registerInterface");
++    if (registerInterface == nullptr) {
++        ALOGE("Failed to find symbol(registerInterface): error (%s)", dlerror());
++        return;
++    }
++
++    registerInterface();
++}
++
+ int main(int argc __unused, char **argv __unused)
+ {
+     SLOGI("%s: starting", __func__);
+@@ -65,6 +83,8 @@ int main(int argc __unused, char **argv __unused)
+     // this automatically when called from AudioPolicy, but we do this anyways here.
+     ProcessState::self()->startThreadPool();
+ 
++    load_audiohalvendorextn();
++
+     // Instantiating AudioFlinger (making it public, e.g. through ::initialize())
+     // and then instantiating AudioPolicy (and making it public)
+     // leads to situations where AudioFlinger is accessed remotely before
+@@ -81,6 +101,7 @@ int main(int argc __unused, char **argv __unused)
+     SLOGI("%s: AudioFlinger created", __func__);
+     SLOGW_IF(AudioSystem::setLocalAudioFlinger(af) != OK,
+             "%s: AudioSystem already has an AudioFlinger instance!", __func__);
++    af->onAudioFlingerInitComplete();
+     const auto aps = sp<AudioPolicyService>::make();
+     af->initAudioPolicyLocal(aps);
+     SLOGI("%s: AudioPolicy created", __func__);
+diff --git a/media/libaudioclient/include/media/SonyDseeCodecClient.h b/media/libaudioclient/include/media/SonyDseeCodecClient.h
+new file mode 100644
+index 0000000000..f77602f096
+--- /dev/null
++++ b/media/libaudioclient/include/media/SonyDseeCodecClient.h
+@@ -0,0 +1,56 @@
++/*
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Notify Sony PAL DSEE of the active audio codec client.
++ * PAL dsee_set_parameters reads:
++ *   codec_client_uid, codec_client_state, codec_format, codec_bitrate
++ */
++#pragma once
++
++#include <media/AudioParameter.h>
++#include <media/AudioSystem.h>
++#include <system/audio.h>
++#include <utils/Log.h>
++#include <strings.h>
++
++namespace android {
++
++inline audio_format_t sonyDseeMimeToFormat(const char* mime) {
++    if (mime == nullptr) {
++        return AUDIO_FORMAT_DEFAULT;
++    }
++    if (strcasecmp(mime, "audio/mpeg") == 0) return AUDIO_FORMAT_MP3;
++    if (strcasecmp(mime, "audio/mpeg-L1") == 0) return AUDIO_FORMAT_MP3;
++    if (strcasecmp(mime, "audio/mpeg-L2") == 0) return AUDIO_FORMAT_MP2;
++    if (strcasecmp(mime, "audio/mp4a-latm") == 0) return AUDIO_FORMAT_AAC;
++    if (strcasecmp(mime, "audio/aac") == 0) return AUDIO_FORMAT_AAC;
++    if (strcasecmp(mime, "audio/raw") == 0) return AUDIO_FORMAT_PCM_16_BIT;
++    if (strcasecmp(mime, "audio/flac") == 0) return AUDIO_FORMAT_FLAC;
++    if (strcasecmp(mime, "audio/vorbis") == 0) return AUDIO_FORMAT_VORBIS;
++    if (strcasecmp(mime, "audio/opus") == 0) return AUDIO_FORMAT_OPUS;
++    if (strcasecmp(mime, "audio/ac3") == 0) return AUDIO_FORMAT_AC3;
++    if (strcasecmp(mime, "audio/eac3") == 0) return AUDIO_FORMAT_E_AC3;
++    if (strcasecmp(mime, "audio/eac3-joc") == 0) return AUDIO_FORMAT_E_AC3_JOC;
++    if (strcasecmp(mime, "audio/ac4") == 0) return AUDIO_FORMAT_AC4;
++    if (strcasecmp(mime, "audio/alac") == 0) return AUDIO_FORMAT_ALAC;
++    if (strcasecmp(mime, "audio/amr") == 0) return AUDIO_FORMAT_AMR_NB;
++    if (strcasecmp(mime, "audio/amr-wb") == 0) return AUDIO_FORMAT_AMR_WB;
++    return AUDIO_FORMAT_DEFAULT;
++}
++
++inline void sonyDseeNotifyCodecClient(uid_t uid, const char* mime, int32_t bitrate, bool on) {
++    if (mime == nullptr || strncmp(mime, "audio/", 6) != 0) {
++        return;
++    }
++    const audio_format_t fmt = sonyDseeMimeToFormat(mime);
++    AudioParameter param;
++    param.addInt(String8("codec_client_uid"), static_cast<int>(uid));
++    param.addInt(String8("codec_client_state"), on ? 1 : 0);
++    param.addInt(String8("codec_format"), static_cast<int>(fmt));
++    param.addInt(String8("codec_bitrate"), bitrate > 0 ? bitrate : 0);
++    const status_t st = AudioSystem::setParameters(param.toString());
++    ALOGD("SonyDseeCodecClient uid=%u mime=%s fmt=0x%x br=%d on=%d st=%d",
++          static_cast<unsigned>(uid), mime, fmt, bitrate, on ? 1 : 0, st);
++}
++
++}  // namespace android
+diff --git a/media/libstagefright/MediaCodec.cpp b/media/libstagefright/MediaCodec.cpp
+index 9de15a9e6e..a2b17761d0 100644
+--- a/media/libstagefright/MediaCodec.cpp
++++ b/media/libstagefright/MediaCodec.cpp
+@@ -64,6 +64,7 @@
+ #include <media/MediaCodecBuffer.h>
+ #include <media/MediaCodecInfo.h>
+ #include <media/MediaMetricsItem.h>
++#include <media/SonyDseeCodecClient.h>
+ #include <media/MediaResource.h>
+ #include <media/NdkMediaErrorPriv.h>
+ #include <media/NdkMediaFormat.h>
+@@ -454,6 +455,8 @@ struct MediaCodec::ResourceManagerServiceProxy :
+         mImportance = importance;
+     }
+ 
++    uid_t clientUid() const { return mUid; }
++
+ private:
+     // To get the binder interface to ResourceManagerService.
+     void getService() {
+@@ -4940,6 +4943,22 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
+ 
+                     postPendingRepliesAndDeferredMessages("kWhatComponentConfigured");
+ 
++                    // Notify Sony PAL DSEE of active audio decoder (uses mInputFormat for decoders).
++                    if (!(mFlags & kFlagIsEncoder) && mDomain == DOMAIN_AUDIO &&
++                            interestingFormat != nullptr) {
++                        AString mime;
++                        if (interestingFormat->findString("mime", &mime) &&
++                                mime.startsWithIgnoreCase("audio/")) {
++                            int32_t bitrate = 0;
++                            interestingFormat->findInt32("bitrate", &bitrate);
++                            if (bitrate == 0) {
++                                interestingFormat->findInt32(KEY_BIT_RATE, &bitrate);
++                            }
++                            const uid_t uid = mResourceManagerProxy->clientUid();
++                            sonyDseeNotifyCodecClient(uid, mime.c_str(), bitrate, true);
++                        }
++                    }
++
+                     // augment our media metrics info, now that we know more things
+                     // such as what the codec extracted from any CSD passed in.
+                     if (mMetricsHandle != 0) {
