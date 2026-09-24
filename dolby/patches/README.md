@@ -1,13 +1,9 @@
-# Dolby patches (deprecated location)
+# Dolby patches (deprecated)
 
-Patch `frameworks/av` đã chuyển lên:
-
-```
-vendor/sony/audio/patches/
-```
+Bản vá ROM đã chuyển sang hub:
 
 ```bash
-vendor/sony/audio/patches/apply.sh
+device/sony/pdx237/patchs/apply.sh
 ```
 
-Micro-patch cũ: `../patches/archive/frameworks/av/` (hoặc `archive/` local nếu còn).
+`apply.sh` tại đây chỉ redirect sang hub.

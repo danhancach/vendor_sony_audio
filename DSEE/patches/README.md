@@ -1,9 +1,9 @@
-# DSEE
+# DSEE patches (deprecated)
 
-Codec notify + `direct_pcm` nằm trong patch gộp:
+Codec notify + `direct_pcm` nằm trong hub ROM:
 
 ```bash
-vendor/sony/audio/patches/apply.sh
+device/sony/pdx237/patchs/apply.sh
 ```
 
-Micro-patch cũ: `../../patches/archive/av/`
+`apply.sh` tại đây chỉ redirect sang hub.

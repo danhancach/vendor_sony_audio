@@ -1,9 +1,9 @@
-# 360RA
+# 360RA patches (deprecated)
 
-Routing/upmix nằm trong patch gộp:
+Routing/upmix nằm trong hub ROM:
 
 ```bash
-vendor/sony/audio/patches/apply.sh
+device/sony/pdx237/patchs/apply.sh
 ```
 
-Micro-patch cũ: `../../patches/archive/av/`
+`apply.sh` tại đây chỉ redirect sang hub.
