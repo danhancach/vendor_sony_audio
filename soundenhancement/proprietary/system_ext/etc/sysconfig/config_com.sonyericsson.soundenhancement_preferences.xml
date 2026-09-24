@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     Copyright 2023 Sony Corporation
+ -->
+<config>
+     <allow-in-power-save package="com.sonyericsson.soundenhancement" />
+</config>

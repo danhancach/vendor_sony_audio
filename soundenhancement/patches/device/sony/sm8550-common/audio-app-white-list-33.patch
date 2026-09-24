@@ -1,0 +1,14 @@
+diff --git a/audio/audio_app_white_list.xml b/audio/audio_app_white_list.xml
+index aac65c9..d61b9f1 100644
+--- a/audio/audio_app_white_list.xml
++++ b/audio/audio_app_white_list.xml
+@@ -165,9 +165,4 @@
+         <audio-format>1</audio-format>
+         <bit-rate>-1</bit-rate>
+     </app-item>
+-    <app-item>
+-        <package-name>com.maxmpz.audioplayer</package-name>
+-        <audio-format>1</audio-format>
+-        <bit-rate>-1</bit-rate>
+-    </app-item>
+ </app-list>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Copyright 2024 Sony Corporation
+-->
+<exceptions>
+    <exception package="com.sonyericsson.soundenhancement">
+        <!-- To enable users editing notification settings for clear audio -->
+        <permission name="android.permission.POST_NOTIFICATIONS" fixed="false"/>
+    </exception>
+</exceptions>
