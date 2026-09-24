@@ -1,0 +1,7 @@
+service dms-hal-2-0 /vendor/bin/hw/vendor.dolby.hardware.dms@2.0-service
+    # early_hal: DaxService (persistent) binds at boot; class hal starts too late → 0/65 params
+    class early_hal
+    user media
+    group audio media
+on post-fs-data
+    mkdir /data/vendor/dolby 0770 media media

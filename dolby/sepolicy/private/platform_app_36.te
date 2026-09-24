@@ -1,0 +1,11 @@
+# daxService (platform-signed, targetSdk 36) runs as platform_app_36 on Android 17.
+allow platform_app_36 hal_dms_hwservice:hwservice_manager find;
+
+binder_call(platform_app_36, hal_dms_default)
+
+allow platform_app_36 hal_dms_default:fd use;
+allow platform_app_36 hal_dms:memfd_file { read write getattr map };
+allow hal_dms platform_app_36:memfd_file { read write getattr map };
+
+# persist.audio.dolby.enabled is labeled audio_prop (plat_property_contexts: persist.audio.*)
+set_prop(platform_app_36, audio_prop)

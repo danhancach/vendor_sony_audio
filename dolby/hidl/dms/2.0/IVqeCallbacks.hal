@@ -1,0 +1,9 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package vendor.dolby.hardware.dms@2.0;
+
+interface IVqeCallbacks {
+    onAudioTrackChange(int32_t sessionId, int32_t ioHandle, int32_t streamType,
+            int32_t trackId, int32_t state, int32_t sampleRate, int32_t channelMask);
+};
