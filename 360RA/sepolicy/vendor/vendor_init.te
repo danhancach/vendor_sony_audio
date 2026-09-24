@@ -1,2 +1,3 @@
-# Seed vendor.360ra.* defaults from vendor build.prop.
+# Seed vendor.360ra.* va suppress.dolby tu vendor build.prop.
 set_prop(vendor_init, vendor_360ra_prop)
+set_prop(vendor_init, vendor_sony_spatializer_dolby_prop)

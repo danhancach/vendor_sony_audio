@@ -13,10 +13,12 @@ Stock blobs from `.stock-fw/extracted` via `./extract-from-stock.sh`.
 
 Requires `TARGET_SUPPORTS_360RA := true` in device.mk (enables `init.sony-360ra.rc` + `audio_effects.xml` spatializer entries).
 
-Framework routing/upmix: `360RA/patches/` then `dolby/patches/` (`0013` Dolby vs DSEE priority).
+Framework routing/upmix và `FCC_LIMIT = FCC_13` (`system/media`, cần cho MPEG-H 13ch / `CHANNEL_OUT_13POINT0`) nằm ở hub:
 
-Framework: `FCC_LIMIT = FCC_13` in `system/media/audio/include/system/audio.h` — required for MPEG-H decoder output (`CHANNEL_OUT_13POINT0`, 13ch PCM). Without this, 360RA player apps fail with `AudioTrack: 13 > 12`.
+```bash
+device/sony/pdx237/patchs/apply.sh
+```
 
-Áp dụng qua `vendor/sony/audio/patches/apply.sh` (patch `system/media/0001-audio-fcc-limit-13-360ra.patch`) — **không** sửa tay rồi bỏ khỏi apply script (đã mất sau dọn patch / sync).
+Không sửa tay `audio.h` rồi bỏ khỏi apply script — áp dụng qua hub sau sync.
 
 Build note: Sony blobs that share paths with AOSP (`libbundlewrapper`, `libcodec2_soft_common`, `libsfplugin_ccodec_utils`) ship via `PRODUCT_COPY_FILES`; `BUILD_BROKEN_DUP_RULES` and `BUILD_BROKEN_ELF_PREBUILT_PRODUCT_COPY_FILES` in pdx237 `BoardConfig.mk`.
