@@ -1,0 +1,2 @@
+# Seed vendor.360ra.* defaults from vendor build.prop.
+set_prop(vendor_init, vendor_360ra_prop)

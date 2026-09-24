@@ -1,0 +1,2 @@
+allow threesixtyra_data_vendor_access vendor_threesixtyra_data_file:dir rw_dir_perms;
+allow threesixtyra_data_vendor_access vendor_threesixtyra_data_file:file create_file_perms;
