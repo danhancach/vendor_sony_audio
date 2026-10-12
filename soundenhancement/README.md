@@ -14,6 +14,8 @@ From `.stock-fw/extracted` (firmware `67.2.A.3.178`):
 ./extract-from-stock.sh
 ```
 
+`SoundEnhancement.apk` trong `proprietary/` đã được xử lý local (UI lag SelectAppActivity / AppsManager). **Không** ship smali/apk patch trong repo này — binary đã vá là SSOT. Sau khi extract lại từ stock sạch, cần áp lại chỉnh sửa APK thủ công trước khi commit blob.
+
 ## Depends on
 
 - `vendor/sony/audio/dolby` — daxService, Dolby HAL, `libswdap`

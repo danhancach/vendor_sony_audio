@@ -36,3 +36,4 @@ if [[ "$missing" -gt 0 ]]; then
 fi
 
 echo "Done: $copied files → $DST"
+# APK UI fix da nam trong proprietary binary — khong apply smali patch o day
