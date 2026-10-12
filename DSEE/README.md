@@ -9,8 +9,8 @@ Stock DSEE-HX/Ultimate tuning for Xperia 5 V (pdx237).
 | Wrapper | `vendor/sony/sm8550-common` → `libsonydseehxwrapper.so` | PAL effect bridge |
 | Engine | `vendor/sony/sm8550-common` → `libar-pal.so` | `dsee_set_parameters` in PAL |
 | Params | this module → `/vendor/etc/dsx_param_file.bin`, `Drangepara*.bin` | codec-specific tuning |
-| Routing | `frameworks/av` → `SonyDolbyAudioPolicy` | DSEE always wins when ON; `dolby/patches` 0002–0004 |
-| Codec notify | `frameworks/av` → `SonyDseeCodecClient` | via `DSEE/patches` 0003 |
+| Routing | `frameworks/av` → `SonyDolbyAudioPolicy` | DSEE always wins when ON — hub `pdx237/patchs` |
+| Codec notify | `frameworks/av` → `SonyDseeCodecClient` | hub `pdx237/patchs` |
 | UI toggle | `soundenhancement` → `dsee_hx_state` | Sound Enhancement app |
 
 ## Blobs
@@ -24,11 +24,11 @@ From `.stock-fw/extracted`:
 
 ## Framework patches
 
-```bash
-vendor/sony/audio/DSEE/patches/apply.sh
-```
+Bản vá ROM không nằm trong repo này. Sau `repo sync`:
 
-Routing invalidate / direct_pcm behavior is in `dolby/patches/frameworks/av/`.
+```bash
+device/sony/pdx237/patchs/apply.sh
+```
 
 ## Verify
 

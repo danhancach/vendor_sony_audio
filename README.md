@@ -5,18 +5,20 @@ Umbrella tree for stock Sony audio ports on AOSP 17:
 ```text
 vendor/sony/audio/
 ├── config.mk           # ROM entry — inherit from device.mk
-├── patches/            # Consolidated frameworks/av + device patches (apply here)
 ├── dolby/              # Dolby DAP + DMS (stock A15 port)
 ├── soundenhancement/   # Sound Enhancement UI (stock A15 priv-app)
 ├── 360RA/              # 360 Reality Audio (stock A15 port)
-└── DSEE/               # DSEE-HX params + frameworks/av codec notify patch
+└── DSEE/               # DSEE-HX params (codec notify / routing → hub patches)
 ```
 
-Apply Sony audio on `frameworks/av` after `repo sync`:
+Repo này chỉ giữ **proprietary blobs**, configs, sepolicy, extract scripts.
+Bản vá ROM (`frameworks/av`, `system/media`, …) nằm ở hub device:
 
 ```bash
-vendor/sony/audio/patches/apply.sh
+device/sony/pdx237/patchs/apply.sh
 ```
+
+Hub: `device/sony/pdx237/patchs/` (`series.txt`, `RELATED.md`, `apply.sh`).
 
 ## Integrate
 
@@ -31,7 +33,7 @@ $(call inherit-product, vendor/sony/audio/config.mk)
 <project path="vendor/sony/audio"
          name="danhancach/vendor_sony_audio"
          remote="github-non-los"
-         revision="check-dolby"
+         revision="pdx237"
          groups="pdx237,notdefault" />
 ```
 

@@ -8,7 +8,6 @@ Port of **stock Sony Dolby DAP** from Android 15 firmware (pdx237) to AOSP 17. B
 proprietary/   stock A15 blobs (SHA must match firmware)
 configs/       port overlay (DMS early_hal, VINTF matrix)
 sepolicy/      DMS + platform_app_36
-patches/       frameworks/av (AudioFlinger + AudioPolicy)
 ```
 
 Parent tree: `vendor/sony/audio/dolby/` (see `../README.md`).
@@ -29,8 +28,10 @@ PRODUCT_BUILD_PROP_OVERRIDES += ProductModel=Pdx237
 **3. ROM patches** (after every `repo sync` of `frameworks/av`):
 
 ```bash
-vendor/sony/audio/dolby/patches/apply.sh
+device/sony/pdx237/patchs/apply.sh
 ```
+
+Hub: `device/sony/pdx237/patchs/` (AudioFlinger + AudioPolicy + related). Không giữ patch trong repo audio này.
 
 **4. VINTF** — install HAL manifests as fragments only (`prebuilt_etc_xml`). Do not also add the same XML to `DEVICE_MANIFEST_FILE`.
 
