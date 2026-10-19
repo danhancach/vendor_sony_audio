@@ -13,3 +13,11 @@ PRODUCT_COPY_FILES += \
     vendor/sony/audio/DSEE/proprietary/vendor/etc/DrangeparaMP3_192.bin:$(TARGET_COPY_OUT_VENDOR)/etc/DrangeparaMP3_192.bin \
     vendor/sony/audio/DSEE/proprietary/vendor/etc/DrangeparaPCM441.bin:$(TARGET_COPY_OUT_VENDOR)/etc/DrangeparaPCM441.bin \
     vendor/sony/audio/DSEE/proprietary/vendor/etc/DrangeparaPCM48.bin:$(TARGET_COPY_OUT_VENDOR)/etc/DrangeparaPCM48.bin
+
+# AudioFlinger settle around dsee_hx_state (DIRECT <-> mixer). Consumed by
+# sonyInvalidateSleepBeforeUs in frameworks/av audioflinger Sony port.
+PRODUCT_VENDOR_PROPERTIES += \
+    vendor.audio.invalidate_sleep_before=100000 \
+    vendor.audio.invalidate_sleep_dsee_on=50000 \
+    vendor.audio.invalidate_sleep_dsee_off=120000 \
+    vendor.audio.invalidate_sleep_after=0

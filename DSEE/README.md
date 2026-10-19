@@ -12,6 +12,7 @@ Stock DSEE-HX/Ultimate tuning for Xperia 5 V (pdx237).
 | Routing | `frameworks/av` → `SonyDolbyAudioPolicy` | DSEE always wins when ON — hub `pdx237/patchs` |
 | Codec notify | `frameworks/av` → `SonyDseeCodecClient` | hub `pdx237/patchs` |
 | UI toggle | `soundenhancement` → `dsee_hx_state` | Sound Enhancement app |
+| AF settle props | `dsee.mk` → `vendor.audio.invalidate_sleep_*` | DIRECT↔mixer drain; not Dolby |
 
 ## Blobs
 
@@ -21,6 +22,17 @@ From `.stock-fw/extracted`:
 ./extract-from-stock.sh
 # or: ./extract-from-stock.sh /path/to/extracted
 ```
+
+## AudioFlinger invalidate settle
+
+Props in `dsee.mk` (not `dolby/`):
+
+| Property | Role |
+|----------|------|
+| `vendor.audio.invalidate_sleep_before` | Default sleep before music invalidate |
+| `vendor.audio.invalidate_sleep_dsee_on` | When `dsee_hx_state=1` (mixer→DIRECT) |
+| `vendor.audio.invalidate_sleep_dsee_off` | When `dsee_hx_state=0` (DIRECT→mixer) |
+| `vendor.audio.invalidate_sleep_after` | Sleep after invalidate |
 
 ## Framework patches
 
