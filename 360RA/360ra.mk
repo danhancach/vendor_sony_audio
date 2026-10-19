@@ -46,7 +46,6 @@ PRODUCT_PACKAGES += \
     vendor.threesixty_ra.codec2.xml \
     android.hardware.media.c2@1.2-default-seccomp_policy \
     media_codecs_sony_c2_audio.xml \
-    ThreeSixtyRASettings \
     ThreeSixtyRASystem \
     ThreeSixtyRASystem-pdx237-Overlay \
     com.sony.threesixtyra.audiofx \

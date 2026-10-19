@@ -25,7 +25,6 @@ PRODUCT_COPY_FILES += \
 
 PRODUCT_PACKAGES += \
     daxService \
-    DolbySound \
     com.dolby.daxservice.xml \
     dax-default.xml \
     media_codecs_dolby_audio.xml \
