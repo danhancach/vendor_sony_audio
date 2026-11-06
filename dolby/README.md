@@ -1,16 +1,31 @@
 # Sony Xperia 5 V — stock Dolby (A15 → AOSP 17)
 
-Port of **stock Sony Dolby DAP** from Android 15 firmware (pdx237) to AOSP 17. Blobs are not hex-patched. DSP only applies when `DlbGenClass2: Security Check is PASS`.
+Port of **stock Sony Dolby DAP** from Android 15 firmware (pdx237) to AOSP 17. Native Dolby libraries are not hex-patched. DSP only applies when `DlbGenClass2: Security Check is PASS`.
 
 **Xperia 5 V / pdx237 only.** Not a GitHub or Magisk Dolby module.
 
 ```text
-proprietary/   stock A15 blobs (SHA must match firmware)
+proprietary/   stock A15 native blobs; customized daxService (see below)
 configs/       port overlay (DMS early_hal, VINTF matrix)
 sepolicy/      DMS + platform_app_36
 ```
 
 Parent tree: `vendor/sony/audio/dolby/` (see `../README.md`).
+
+## Speaker mono integration
+
+`daxService.apk` retains Sony rotation parameters and tuning, but its
+`SwapConditionListener.publishRotation()` no longer writes Accessibility
+`master_mono`. Speaker mono is owned by AudioService and AudioPolicy, using
+the separate `sony_speaker_portrait_mono` preference exposed by SoundEnhancement.
+The APK change is limited to `classes.dex`; native Dolby libraries and other
+ZIP entry contents are unchanged. The platform certificate is applied by the
+existing `android_app_import` during the ROM build.
+
+This requires a matching framework, JNI, audio stack, and app build. Installing
+only the app or native audio libraries does not deploy the full feature.
+Accessibility mono is not automatically cleared, including legacy values left
+by the previous service customization.
 
 ## Integrate into a ROM
 
